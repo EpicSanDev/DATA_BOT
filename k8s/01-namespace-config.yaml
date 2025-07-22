@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: databot-v4
+  labels:
+    app: databot
+    version: v4
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: databot-config
+  namespace: databot-v4
+data:
+  ENVIRONMENT: "kubernetes"
+  REDIS_HOST: "redis-service"
+  POSTGRES_HOST: "postgres-service"
+  ELASTICSEARCH_HOST: "elasticsearch-service"
+  OPENSEARCH_HOST: "opensearch-service"
+  QDRANT_HOST: "qdrant-service"
+  POSTGRES_DB: "databot_v4"
+  POSTGRES_USER: "databot"
+  USE_OPENSEARCH: "true"
+  ENABLE_ML_CATEGORIZATION: "true"
+  ENABLE_RESULT_CLUSTERING: "true"
+  KUBERNETES_NAMESPACE: "databot-v4"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: databot-secrets
+  namespace: databot-v4
+type: Opaque
+data:
+  POSTGRES_PASSWORD: ZGF0YWJvdF9wYXNzd29yZA== # databot_password en base64
+  REDIS_PASSWORD: ""
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: databot-data-pvc
+  namespace: databot-v4
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: databot-logs-pvc
+  namespace: databot-v4
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: databot-archive-pvc
+  namespace: databot-v4
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard

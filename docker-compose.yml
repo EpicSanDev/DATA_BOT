@@ -1,0 +1,164 @@
+version: '3.8'
+
+services:
+  # Main DATA_BOT v4 application
+  databot-v4:
+    build: .
+    container_name: databot-v4
+    ports:
+      - "8080:8080"  # Main web interface
+      - "8081:8081"  # Browser plugin server
+      - "8082:8082"  # Admin interface
+      - "8083:8083"  # GraphQL API
+    environment:
+      - ENVIRONMENT=docker
+      - REDIS_HOST=redis
+      - ELASTICSEARCH_HOST=elasticsearch
+      - OPENSEARCH_HOST=opensearch
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=databot_v4
+      - POSTGRES_USER=databot
+      - POSTGRES_PASSWORD=databot_password
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./archive:/app/archive
+      - ./screenshots:/app/screenshots
+      - ./config:/app/config
+    depends_on:
+      - redis
+      - postgres
+      - elasticsearch
+      - opensearch
+    restart: unless-stopped
+    networks:
+      - databot-network
+
+  # Redis for distributed coordination and caching
+  redis:
+    image: redis:7-alpine
+    container_name: databot-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - databot-network
+
+  # PostgreSQL for enhanced database features
+  postgres:
+    image: postgres:15-alpine
+    container_name: databot-postgres
+    environment:
+      - POSTGRES_DB=databot_v4
+      - POSTGRES_USER=databot
+      - POSTGRES_PASSWORD=databot_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - databot-network
+
+  # Elasticsearch for search and analytics
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.0
+    container_name: databot-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    restart: unless-stopped
+    networks:
+      - databot-network
+
+  # OpenSearch as alternative to Elasticsearch
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    container_name: databot-opensearch
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9201:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    restart: unless-stopped
+    networks:
+      - databot-network
+
+  # Vector database (Qdrant)
+  qdrant:
+    image: qdrant/qdrant:v1.6.0
+    container_name: databot-qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: unless-stopped
+    networks:
+      - databot-network
+
+  # Monitoring with Prometheus
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: databot-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+    networks:
+      - databot-network
+
+  # Visualization with Grafana
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: databot-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana:/etc/grafana/provisioning
+    restart: unless-stopped
+    networks:
+      - databot-network
+
+  # Load balancer/reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: databot-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - databot-v4
+    restart: unless-stopped
+    networks:
+      - databot-network
+
+volumes:
+  redis-data:
+  postgres-data:
+  elasticsearch-data:
+  opensearch-data:
+  qdrant-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  databot-network:
+    driver: bridge
