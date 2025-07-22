@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="{{ pwa_config.theme_color }}">
+    <title>{{ pwa_config.name }}</title>
+    
+    <!-- PWA -->
+    <link rel="manifest" href="/mobile/manifest.json">
+    <link rel="icon" type="image/png" href="/mobile/icons/icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="{{ pwa_config.short_name }}">
+    
+    <!-- CSS Mobile -->
+    <link rel="stylesheet" href="/mobile/app.css">
+    
+    <!-- Vue.js pour l'interface réactive -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    
+    <!-- Icons (Lucide) -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Header mobile -->
+        <header class="mobile-header">
+            <div class="header-content">
+                <h1>{{ pwa_config.short_name }}</h1>
+                <div class="header-actions">
+                    <button @click="showSearchModal = true" class="btn-icon">
+                        <i data-lucide="search"></i>
+                    </button>
+                    <button @click="showAddModal = true" class="btn-icon">
+                        <i data-lucide="plus"></i>
+                    </button>
+                    <button @click="showMenuModal = true" class="btn-icon">
+                        <i data-lucide="menu"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Contenu principal -->
+        <main class="mobile-main">
+            <!-- État de connexion -->
+            <div v-if="!isOnline" class="offline-banner">
+                <i data-lucide="wifi-off"></i>
+                Mode hors ligne - Les données seront synchronisées à la reconnexion
+            </div>
+
+            <!-- Statistiques rapides -->
+            <section class="stats-section">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-number">{{ stats.total_resources }}</div>
+                        <div class="stat-label">Ressources</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">{{ stats.active_tasks }}</div>
+                        <div class="stat-label">Tâches actives</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">{{ stats.cluster_nodes }}</div>
+                        <div class="stat-label">Nœuds</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Recherche rapide -->
+            <section class="quick-search-section">
+                <div class="search-input-container">
+                    <input 
+                        v-model="quickSearchQuery"
+                        @input="quickSearch"
+                        placeholder="Recherche rapide..."
+                        class="search-input"
+                        type="text"
+                    >
+                    <button @click="performSearch" class="search-btn">
+                        <i data-lucide="search"></i>
+                    </button>
+                </div>
+                
+                <!-- Résultats de recherche rapide -->
+                <div v-if="searchResults.length > 0" class="quick-results">
+                    <div 
+                        v-for="result in searchResults" 
+                        :key="result.url"
+                        class="result-item"
+                        @click="openResource(result)"
+                    >
+                        <div class="result-title">{{ result.title || result.url }}</div>
+                        <div class="result-url">{{ result.url }}</div>
+                        <div class="result-score">Score: {{ result.score?.toFixed(3) }}</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Ressources récentes -->
+            <section class="recent-section">
+                <h2>Ressources récentes</h2>
+                <div class="resources-list">
+                    <div 
+                        v-for="resource in recentResources" 
+                        :key="resource.url"
+                        class="resource-item"
+                        @click="openResource(resource)"
+                    >
+                        <div class="resource-icon">
+                            <i :data-lucide="getResourceIcon(resource.type)"></i>
+                        </div>
+                        <div class="resource-content">
+                            <div class="resource-title">{{ resource.title || resource.url }}</div>
+                            <div class="resource-meta">
+                                <span class="resource-domain">{{ getDomain(resource.url) }}</span>
+                                <span class="resource-date">{{ formatDate(resource.created_at) }}</span>
+                            </div>
+                            <div v-if="resource.tags?.length" class="resource-tags">
+                                <span v-for="tag in resource.tags" :key="tag" class="tag">{{ tag }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Modal de recherche avancée -->
+        <div v-if="showSearchModal" class="modal-overlay" @click="showSearchModal = false">
+            <div class="modal-content" @click.stop>
+                <div class="modal-header">
+                    <h3>Recherche avancée</h3>
+                    <button @click="showSearchModal = false" class="btn-close">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <input 
+                        v-model="searchQuery"
+                        placeholder="Votre recherche..."
+                        class="search-input"
+                        type="text"
+                    >
+                    <div class="search-options">
+                        <label class="search-option">
+                            <input type="radio" v-model="searchType" value="all"> Tout
+                        </label>
+                        <label class="search-option">
+                            <input type="radio" v-model="searchType" value="vector"> Sémantique
+                        </label>
+                        <label class="search-option">
+                            <input type="radio" v-model="searchType" value="elasticsearch"> Texte intégral
+                        </label>
+                    </div>
+                    <button @click="performAdvancedSearch" class="btn-primary">
+                        Rechercher
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal d'ajout rapide -->
+        <div v-if="showAddModal" class="modal-overlay" @click="showAddModal = false">
+            <div class="modal-content" @click.stop>
+                <div class="modal-header">
+                    <h3>Ajouter une URL</h3>
+                    <button @click="showAddModal = false" class="btn-close">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <input 
+                        v-model="newUrl"
+                        placeholder="https://example.com"
+                        class="search-input"
+                        type="url"
+                    >
+                    <input 
+                        v-model="newTitle"
+                        placeholder="Titre (optionnel)"
+                        class="search-input"
+                        type="text"
+                    >
+                    <input 
+                        v-model="newTags"
+                        placeholder="Tags séparés par des virgules"
+                        class="search-input"
+                        type="text"
+                    >
+                    <button @click="addQuickArchive" class="btn-primary">
+                        Ajouter à l'archive
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal menu -->
+        <div v-if="showMenuModal" class="modal-overlay" @click="showMenuModal = false">
+            <div class="modal-content" @click.stop>
+                <div class="modal-header">
+                    <h3>Menu</h3>
+                    <button @click="showMenuModal = false" class="btn-close">
+                        <i data-lucide="x"></i>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="menu-items">
+                        <a href="#" @click="syncData" class="menu-item">
+                            <i data-lucide="refresh-cw"></i>
+                            Synchroniser
+                        </a>
+                        <a href="#" @click="showStats" class="menu-item">
+                            <i data-lucide="bar-chart"></i>
+                            Statistiques
+                        </a>
+                        <a href="#" @click="showSettings" class="menu-item">
+                            <i data-lucide="settings"></i>
+                            Paramètres
+                        </a>
+                        <a href="/api/docs" class="menu-item">
+                            <i data-lucide="book"></i>
+                            Documentation API
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast notifications -->
+        <div v-if="toast.show" class="toast" :class="toast.type">
+            <i :data-lucide="toast.icon"></i>
+            {{ toast.message }}
+        </div>
+    </div>
+
+    <!-- JavaScript principal -->
+    <script>
+        const API_BASE = '{{ api_base }}';
+        
+        const { createApp, ref, reactive, onMounted, computed } = Vue;
+        
+        createApp({
+            setup() {
+                // État de l'application
+                const isOnline = ref(navigator.onLine);
+                const stats = reactive({
+                    total_resources: 0,
+                    active_tasks: 0,
+                    cluster_nodes: 1
+                });
+                
+                // Modals
+                const showSearchModal = ref(false);
+                const showAddModal = ref(false);
+                const showMenuModal = ref(false);
+                
+                // Recherche
+                const quickSearchQuery = ref('');
+                const searchQuery = ref('');
+                const searchType = ref('all');
+                const searchResults = ref([]);
+                
+                // Ressources
+                const recentResources = ref([]);
+                
+                // Ajout rapide
+                const newUrl = ref('');
+                const newTitle = ref('');
+                const newTags = ref('');
+                
+                // Toast
+                const toast = reactive({
+                    show: false,
+                    message: '',
+                    type: 'info',
+                    icon: 'info'
+                });
+                
+                // Méthodes
+                const showToast = (message, type = 'info') => {
+                    toast.message = message;
+                    toast.type = type;
+                    toast.icon = type === 'error' ? 'alert-circle' : 
+                                type === 'success' ? 'check-circle' : 'info';
+                    toast.show = true;
+                    setTimeout(() => toast.show = false, 3000);
+                };
+                
+                const loadStatus = async () => {
+                    try {
+                        const response = await fetch(`${API_BASE}/mobile/status`);
+                        const data = await response.json();
+                        Object.assign(stats, data.stats);
+                    } catch (error) {
+                        console.error('Erreur chargement statut:', error);
+                    }
+                };
+                
+                const loadRecentResources = async () => {
+                    try {
+                        const response = await fetch(`${API_BASE}/mobile/recent`);
+                        const data = await response.json();
+                        recentResources.value = data.resources;
+                    } catch (error) {
+                        console.error('Erreur chargement ressources:', error);
+                    }
+                };
+                
+                const quickSearch = async () => {
+                    if (quickSearchQuery.value.length < 2) {
+                        searchResults.value = [];
+                        return;
+                    }
+                    
+                    try {
+                        const response = await fetch(`${API_BASE}/mobile/search`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                query: quickSearchQuery.value,
+                                type: 'all',
+                                limit: 5
+                            })
+                        });
+                        const data = await response.json();
+                        searchResults.value = data.results;
+                    } catch (error) {
+                        console.error('Erreur recherche rapide:', error);
+                    }
+                };
+                
+                const performSearch = () => {
+                    searchQuery.value = quickSearchQuery.value;
+                    showSearchModal.value = true;
+                };
+                
+                const performAdvancedSearch = async () => {
+                    try {
+                        const response = await fetch(`${API_BASE}/mobile/search`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                query: searchQuery.value,
+                                type: searchType.value,
+                                limit: 20
+                            })
+                        });
+                        const data = await response.json();
+                        searchResults.value = data.results;
+                        showSearchModal.value = false;
+                        showToast(`${data.total} résultats trouvés`, 'success');
+                    } catch (error) {
+                        showToast('Erreur de recherche', 'error');
+                    }
+                };
+                
+                const addQuickArchive = async () => {
+                    if (!newUrl.value) return;
+                    
+                    try {
+                        const response = await fetch(`${API_BASE}/mobile/quick-archive`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                url: newUrl.value,
+                                title: newTitle.value,
+                                tags: newTags.value.split(',').map(t => t.trim()).filter(t => t)
+                            })
+                        });
+                        
+                        if (response.ok) {
+                            showToast('URL ajoutée à l\'archive', 'success');
+                            newUrl.value = '';
+                            newTitle.value = '';
+                            newTags.value = '';
+                            showAddModal.value = false;
+                        } else {
+                            showToast('Erreur lors de l\'ajout', 'error');
+                        }
+                    } catch (error) {
+                        showToast('Erreur réseau', 'error');
+                    }
+                };
+                
+                const syncData = async () => {
+                    try {
+                        const response = await fetch(`${API_BASE}/mobile/sync`, { method: 'POST' });
+                        const data = await response.json();
+                        showToast('Synchronisation terminée', 'success');
+                        showMenuModal.value = false;
+                    } catch (error) {
+                        showToast('Erreur de synchronisation', 'error');
+                    }
+                };
+                
+                const openResource = (resource) => {
+                    window.open(resource.url, '_blank');
+                };
+                
+                const getResourceIcon = (type) => {
+                    const icons = {
+                        'web_page': 'globe',
+                        'document': 'file-text',
+                        'image': 'image',
+                        'video': 'video',
+                        'audio': 'music'
+                    };
+                    return icons[type] || 'file';
+                };
+                
+                const getDomain = (url) => {
+                    try {
+                        return new URL(url).hostname;
+                    } catch {
+                        return url;
+                    }
+                };
+                
+                const formatDate = (date) => {
+                    return new Date(date).toLocaleDateString('fr-FR');
+                };
+                
+                const showStats = () => {
+                    showMenuModal.value = false;
+                    showToast('Statistiques chargées', 'info');
+                };
+                
+                const showSettings = () => {
+                    showMenuModal.value = false;
+                    showToast('Paramètres à venir', 'info');
+                };
+                
+                // Lifecycle
+                onMounted(async () => {
+                    // Charger les données initiales
+                    await Promise.all([
+                        loadStatus(),
+                        loadRecentResources()
+                    ]);
+                    
+                    // Initialiser les icônes Lucide
+                    lucide.createIcons();
+                    
+                    // Gérer le statut online/offline
+                    window.addEventListener('online', () => {
+                        isOnline.value = true;
+                        syncData();
+                    });
+                    window.addEventListener('offline', () => {
+                        isOnline.value = false;
+                    });
+                    
+                    // Enregistrer le Service Worker
+                    if ('serviceWorker' in navigator) {
+                        navigator.serviceWorker.register('/mobile/sw.js');
+                    }
+                });
+                
+                return {
+                    isOnline,
+                    stats,
+                    showSearchModal,
+                    showAddModal,
+                    showMenuModal,
+                    quickSearchQuery,
+                    searchQuery,
+                    searchType,
+                    searchResults,
+                    recentResources,
+                    newUrl,
+                    newTitle,
+                    newTags,
+                    toast,
+                    quickSearch,
+                    performSearch,
+                    performAdvancedSearch,
+                    addQuickArchive,
+                    syncData,
+                    openResource,
+                    getResourceIcon,
+                    getDomain,
+                    formatDate,
+                    showStats,
+                    showSettings
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
