@@ -10,3 +10,36 @@ __pycache__/
 .vscode/
 *.sqlite
 *.db
+
+# v4 specific
+data/ml_models/
+data/clustering_models/
+data/vectors/
+config/
+monitoring/grafana/data/
+nginx/ssl/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Kubernetes
+*.kubeconfig
+k8s/secrets/
+
+# ML models and cache
+*.pkl
+*.joblib
+*.model
+transformers_cache/
+sentence_transformers_cache/
+
+# Temporary files
+tmp/
+*.tmp
+*.temp
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
