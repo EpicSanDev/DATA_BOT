@@ -196,19 +196,116 @@ class DatabaseManager:
         
         return [self._row_to_resource(row) for row in cursor.fetchall()]
     
-    async def get_resources_by_status(self, status: ArchiveStatus, limit: int = 100) -> List[WebResource]:
+    async def get_resources_by_status(self, status: ArchiveStatus, limit: int = 100, offset: int = 0) -> List[WebResource]:
         """Récupère les ressources par statut"""
         cursor = self.connection.cursor()
         cursor.execute('''
             SELECT * FROM web_resources 
             WHERE status = ? 
             ORDER BY discovered_at DESC
-            LIMIT ?
-        ''', (status.value, limit))
+            LIMIT ? OFFSET ?
+        ''', (status.value, limit, offset))
         
         return [self._row_to_resource(row) for row in cursor.fetchall()]
     
-    async def search_resources(self, query: str, content_type: ContentType = None) -> List[WebResource]:
+    async def get_all_resources(self, limit: int = 1000, offset: int = 0) -> List[WebResource]:
+        """Récupère toutes les ressources avec pagination"""
+        cursor = self.connection.cursor()
+        cursor.execute('''
+            SELECT * FROM web_resources 
+            ORDER BY discovered_at DESC
+            LIMIT ? OFFSET ?
+        ''', (limit, offset))
+        
+        return [self._row_to_resource(row) for row in cursor.fetchall()]
+    
+    async def get_resource_by_id(self, resource_id: int) -> Optional[WebResource]:
+        """Récupère une ressource par son ID"""
+        cursor = self.connection.cursor()
+        cursor.execute('SELECT * FROM web_resources WHERE id = ?', (resource_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            return None
+        
+        return self._row_to_resource(row)
+    
+    async def delete_resource(self, resource_id: int) -> bool:
+        """Supprime une ressource par ID"""
+        cursor = self.connection.cursor()
+        cursor.execute('DELETE FROM web_resources WHERE id = ?', (resource_id,))
+        self.connection.commit()
+        return cursor.rowcount > 0
+    
+    async def delete_resource_by_url(self, url: str) -> bool:
+        """Supprime une ressource par URL"""
+        cursor = self.connection.cursor()
+        cursor.execute('DELETE FROM web_resources WHERE url = ?', (url,))
+        self.connection.commit()
+        return cursor.rowcount > 0
+    
+    async def search_resources(self, query: str, limit: int = 100) -> List[WebResource]:
+        """Recherche dans les ressources"""
+        cursor = self.connection.cursor()
+        search_pattern = f"%{query}%"
+        cursor.execute('''
+            SELECT * FROM web_resources 
+            WHERE title LIKE ? OR url LIKE ? OR metadata LIKE ?
+            ORDER BY discovered_at DESC
+            LIMIT ?
+        ''', (search_pattern, search_pattern, search_pattern, limit))
+        
+        return [self._row_to_resource(row) for row in cursor.fetchall()]
+    
+    async def get_downloaded_resources(self, limit: int = 1000) -> List[WebResource]:
+        """Récupère les ressources téléchargées"""
+        return await self.get_resources_by_status(ArchiveStatus.DOWNLOADED, limit)
+    
+    async def mark_url_as_discovered(self, url: str, parent_url: str = None, depth: int = 0):
+        """Marque une URL comme découverte"""
+        resource = WebResource(
+            url=url,
+            parent_url=parent_url,
+            depth=depth,
+            status=ArchiveStatus.PENDING
+        )
+        await self.save_resource(resource)
+    
+    def _row_to_resource(self, row) -> WebResource:
+        """Convertit une ligne de base de données en WebResource"""
+        import json
+        from datetime import datetime
+        
+        # Parse les champs JSON
+        tags = json.loads(row['tags']) if row['tags'] else []
+        metadata = json.loads(row['metadata']) if row['metadata'] else {}
+        
+        # Parse les dates
+        discovered_at = datetime.fromisoformat(row['discovered_at']) if row['discovered_at'] else None
+        archived_at = datetime.fromisoformat(row['archived_at']) if row['archived_at'] else None
+        
+        # Parse les enums
+        content_type = ContentType(row['content_type']) if row['content_type'] else ContentType.UNKNOWN
+        status = ArchiveStatus(row['status']) if row['status'] else ArchiveStatus.PENDING
+        
+        return WebResource(
+            url=row['url'],
+            title=row['title'],
+            content_type=content_type,
+            file_path=row['file_path'],
+            screenshot_path=row['screenshot_path'],
+            content_length=row['content_length'],
+            status=status,
+            discovered_at=discovered_at,
+            archived_at=archived_at,
+            parent_url=row['parent_url'],
+            depth=row['depth'] or 0,
+            tags=tags,
+            metadata=metadata,
+            error_message=row['error_message']
+        )
+    
+    async def search_resources_old(self, query: str, content_type: ContentType = None) -> List[WebResource]:
         """Recherche des ressources par contenu"""
         cursor = self.connection.cursor()
         

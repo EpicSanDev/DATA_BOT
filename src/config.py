@@ -1,10 +1,13 @@
 import os
 import logging
 from typing import Optional
-from dotenv import load_dotenv
-
 # Load environment variables
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv is optional
+    pass
 
 class Config:
     # Ollama settings
