@@ -15,7 +15,7 @@ from enum import Enum
 from pathlib import Path
 
 try:
-    import aioredis
+    from redis import asyncio as aioredis
     REDIS_AVAILABLE = True
 except ImportError:
     REDIS_AVAILABLE = False

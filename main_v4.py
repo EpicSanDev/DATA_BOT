@@ -52,7 +52,10 @@ class DataBotV4(DataBotV3):
             'api_server_v4': None
         })
         
-        # Configuration v4
+        # Configuration v4 - Initialize as a dictionary if it doesn't exist
+        if not hasattr(self, 'config'):
+            self.config = {}
+            
         self.config.update({
             'admin_port': int(os.getenv('ADMIN_PORT', 8082)),
             'graphql_port': int(os.getenv('GRAPHQL_PORT', 8083)),
@@ -195,6 +198,47 @@ class DataBotV4(DataBotV3):
         
         logger.info("Catégorisation ML terminée")
     
+    async def shutdown(self):
+        """Arrête proprement tous les composants v4"""
+        logger = logging.getLogger(__name__)
+        logger.info("🔄 Arrêt de DATA_BOT v4...")
+        
+        try:
+            # Arrêter les composants v4 spécifiques
+            if hasattr(self, 'components') and self.components:
+                if self.components.get('kubernetes_deployer'):
+                    logger.info("Arrêt du déployeur Kubernetes...")
+                    # Note: Kubernetes deployer n'a généralement pas besoin d'arrêt explicite
+                
+                if self.components.get('api_server_v4'):
+                    logger.info("Arrêt du serveur API v4...")
+                    try:
+                        await self.components['api_server_v4'].stop()
+                    except Exception as e:
+                        logger.warning(f"Erreur lors de l'arrêt du serveur API v4: {e}")
+                
+                if self.components.get('graphql_server'):
+                    logger.info("Arrêt du serveur GraphQL...")
+                    try:
+                        await self.components['graphql_server'].stop()
+                    except Exception as e:
+                        logger.warning(f"Erreur lors de l'arrêt du serveur GraphQL: {e}")
+                
+                if self.components.get('admin_interface'):
+                    logger.info("Arrêt de l'interface d'administration...")
+                    try:
+                        await self.components['admin_interface'].stop()
+                    except Exception as e:
+                        logger.warning(f"Erreur lors de l'arrêt de l'interface admin: {e}")
+            
+            # Appeler le nettoyage des classes parentes
+            await super()._cleanup()
+            logger.info("✅ DATA_BOT v4 arrêté proprement")
+            
+        except Exception as e:
+            logger.error(f"❌ Erreur lors de l'arrêt: {e}")
+            raise
+    
     async def run_result_clustering(self, args):
         """Exécute le clustering automatique des résultats"""
         if not self.components.get('result_clusterer'):
@@ -239,15 +283,85 @@ def create_argument_parser():
         'server', 'admin', 'worker', 'ml-categorize', 'cluster', 'k8s-deploy'
     ], default='server', help='Mode de fonctionnement')
     
-    # Composants optionnels
+    # Arguments de base (hérités des versions précédentes)
+    parser.add_argument("--urls", nargs="*", help="URLs de départ pour l'exploration")
+    parser.add_argument("--log-level", default="INFO", help="Niveau de log")
+    
+    # Configuration API
+    parser.add_argument("--enable-api", action="store_true", default=True, help="Activer l'API REST")
+    parser.add_argument("--api-host", default="localhost", help="Host du serveur API")
+    parser.add_argument("--api-port", type=int, default=8080, help="Port du serveur API")
+    
+    # Composants optionnels v4
     parser.add_argument('--enable-opensearch', action='store_true',
                        help='Utiliser OpenSearch au lieu d\'Elasticsearch')
     parser.add_argument('--enable-graphql', action='store_true',
                        help='Activer le serveur GraphQL')
     parser.add_argument('--enable-admin', action='store_true',
                        help='Activer l\'interface d\'administration')
-    parser.add_argument('--enable-api', action='store_true',
-                       help='Activer le serveur API')
+    
+    # Configuration planificateur
+    parser.add_argument("--enable-scheduler", action="store_true", default=True, help="Activer le planificateur")
+    
+    # Configuration mobile (hérité de v3)
+    parser.add_argument("--enable-mobile-interface", action="store_true", default=True, 
+                       help="Activer l'interface mobile")
+    
+    # Configuration vectorielle (hérité de v3)
+    parser.add_argument("--enable-vector-search", action="store_true", default=True,
+                       help="Activer la recherche vectorielle")
+    parser.add_argument("--vector-provider", choices=["chromadb", "qdrant"], default="chromadb",
+                       help="Fournisseur de base vectorielle")
+    parser.add_argument("--vector-config", help="Configuration du fournisseur vectoriel")
+    parser.add_argument("--vector-action", choices=["index", "search", "reindex"], 
+                       default="index", help="Action vectorielle")
+    
+    # Configuration Elasticsearch (hérité de v3)
+    parser.add_argument("--enable-elasticsearch", action="store_true", default=True,
+                       help="Activer Elasticsearch")
+    parser.add_argument("--elasticsearch-host", default="localhost", help="Host Elasticsearch")
+    parser.add_argument("--elasticsearch-port", type=int, default=9200, help="Port Elasticsearch")
+    parser.add_argument("--es-action", choices=["index", "search", "reindex"],
+                       default="index", help="Action Elasticsearch")
+    
+    # Configuration plugin navigateur (hérité de v3)
+    parser.add_argument("--enable-browser-plugin", action="store_true", default=True,
+                       help="Activer le plugin navigateur")
+    parser.add_argument("--plugin-port", type=int, default=8081, help="Port du serveur plugin")
+    
+    # Configuration distribuée (hérité de v3)
+    parser.add_argument("--enable-distributed", action="store_true", default=False,
+                       help="Activer le mode distribué")
+    parser.add_argument("--node-type", choices=["coordinator", "worker", "hybrid"], default="hybrid",
+                       help="Type de nœud")
+    parser.add_argument("--coordinator-host", default="localhost", help="Host du coordinateur")
+    parser.add_argument("--coordinator-port", type=int, default=8082, help="Port du coordinateur")
+    
+    # Configuration export
+    parser.add_argument("--export-format", choices=["json", "csv", "html", "xml", "zip"], 
+                       default="json", help="Format d'export")
+    parser.add_argument("--include-files", action="store_true", help="Inclure les fichiers dans l'export")
+    parser.add_argument("--filter-status", help="Filtrer par statut pour l'export")
+    parser.add_argument("--max-exports", type=int, default=10, help="Nombre max d'exports à conserver")
+    
+    # Configuration compression
+    parser.add_argument("--force-recompress", action="store_true", help="Forcer la recompression")
+    parser.add_argument("--auto-compress", action="store_true", default=True, help="Compression automatique")
+    
+    # Configuration doublons
+    parser.add_argument("--check-duplicates", action="store_true", default=True, help="Vérifier les doublons")
+    parser.add_argument("--remove-duplicates", action="store_true", help="Supprimer les doublons")
+    parser.add_argument("--duplicate-strategy", choices=["keep_first", "keep_best", "keep_latest"], 
+                       default="keep_latest", help="Stratégie de gestion des doublons")
+    
+    # Configuration planification
+    parser.add_argument("--schedule-action", choices=["list", "add", "remove"], help="Action de planification")
+    parser.add_argument("--task-name", help="Nom de la tâche à ajouter")
+    parser.add_argument("--task-type", choices=["archive", "export", "cleanup", "compression", "duplicate_check"], 
+                       help="Type de tâche")
+    parser.add_argument("--task-frequency", choices=["once", "hourly", "daily", "weekly", "monthly"], 
+                       default="daily", help="Fréquence de la tâche")
+    parser.add_argument("--task-id", help="ID de la tâche pour suppression")
     
     # Configuration ML
     parser.add_argument('--ml-model', default='distilbert-base-uncased',
