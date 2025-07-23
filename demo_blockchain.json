@@ -1,0 +1,179 @@
+{
+  "chain": [
+    {
+      "header": {
+        "previous_hash": "0",
+        "merkle_root": "e0ef3a372ad28748db6ba06199cf99569bc57b4f2b1a575bf236b80e62467091",
+        "timestamp": 1753271036.9135334,
+        "nonce": 32,
+        "difficulty": 1,
+        "block_height": 0,
+        "version": "1.0"
+      },
+      "transactions": [
+        {
+          "tx_id": "genesis",
+          "tx_type": "genesis",
+          "archive_data": null,
+          "sender": "0x0",
+          "receiver": "demo_genesis",
+          "amount": 0,
+          "fee": 0,
+          "timestamp": 1753271036.913534,
+          "signature": ""
+        }
+      ],
+      "hash": "0c5f2849537125c627f6d7ffa1111bca608823cbb6bc311ff1ed60999d011bbf",
+      "archive_count": 0,
+      "total_archive_size": 0,
+      "storage_proofs": [],
+      "content_index": {},
+      "replication_info": {}
+    }
+  ],
+  "pending_transactions": [
+    {
+      "tx_id": "d57bd738f2766365",
+      "tx_type": "archive",
+      "archive_data": {
+        "archive_id": "e1deb659993ec2dc9e924ea15e06aabbc803a0c28d3d14710f6e2fc3763f52cd",
+        "original_url": "https://news.ycombinator.com",
+        "capture_timestamp": "2025-07-23T11:43:56.914087",
+        "content_type": "text/html",
+        "compression": "gzip",
+        "size_compressed": 42,
+        "size_original": 84,
+        "checksum": "sha256_2b525b044a033ac14094309035a39629f896365500104b332c8424666cd3810f",
+        "metadata": {
+          "screenshots": [],
+          "external_resources": [],
+          "linked_pages": [],
+          "tags": [
+            "technology",
+            "news",
+            "startup"
+          ],
+          "category": "news",
+          "priority": 8,
+          "language": null,
+          "title": "news.ycombinator.com",
+          "description": null
+        },
+        "block_height": null,
+        "replication_count": 3,
+        "storage_nodes": []
+      },
+      "sender": "archiver_1",
+      "receiver": "archive_pool",
+      "amount": 0,
+      "fee": 0,
+      "timestamp": 1753271036.9141514,
+      "signature": ""
+    },
+    {
+      "tx_id": "23cfaeb0d25cd291",
+      "tx_type": "archive",
+      "archive_data": {
+        "archive_id": "d57e72046a5cdf99465ace642eb1301a316949e201cef5f5b642122f344d7fc4",
+        "original_url": "https://github.com/torvalds/linux",
+        "capture_timestamp": "2025-07-23T11:43:56.914121",
+        "content_type": "text/markdown",
+        "compression": "gzip",
+        "size_compressed": 29,
+        "size_original": 58,
+        "checksum": "sha256_c69859f73ab70782d035d335b41393642928937099a26664b7f2929b06de3982",
+        "metadata": {
+          "screenshots": [],
+          "external_resources": [],
+          "linked_pages": [],
+          "tags": [
+            "linux",
+            "kernel",
+            "opensource"
+          ],
+          "category": "development",
+          "priority": 9,
+          "language": null,
+          "title": "linux",
+          "description": null
+        },
+        "block_height": null,
+        "replication_count": 3,
+        "storage_nodes": []
+      },
+      "sender": "archiver_2",
+      "receiver": "archive_pool",
+      "amount": 0,
+      "fee": 0,
+      "timestamp": 1753271036.9142878,
+      "signature": ""
+    },
+    {
+      "tx_id": "bba3535a9065b77c",
+      "tx_type": "archive",
+      "archive_data": {
+        "archive_id": "ddb1317eee58e299b2be651c6eb57e45b021f19f3ac225a9f968bb6bb0afb5c8",
+        "original_url": "https://arxiv.org/abs/2301.00001",
+        "capture_timestamp": "2025-07-23T11:43:56.914135",
+        "content_type": "application/pdf",
+        "compression": "gzip",
+        "size_compressed": 35,
+        "size_original": 70,
+        "checksum": "sha256_793adcabaaf2bdf7e9e45febbc12d008bfacdd716c83776303e6ebe70c43b2c8",
+        "metadata": {
+          "screenshots": [],
+          "external_resources": [],
+          "linked_pages": [],
+          "tags": [
+            "research",
+            "blockchain",
+            "consensus"
+          ],
+          "category": "academic",
+          "priority": 7,
+          "language": null,
+          "title": "2301.00001",
+          "description": null
+        },
+        "block_height": null,
+        "replication_count": 3,
+        "storage_nodes": []
+      },
+      "sender": "archiver_3",
+      "receiver": "archive_pool",
+      "amount": 0,
+      "fee": 0,
+      "timestamp": 1753271036.9144223,
+      "signature": ""
+    }
+  ],
+  "difficulty": 2,
+  "stats": {
+    "total_archives": 3,
+    "total_storage_bytes": 212,
+    "total_transactions": 0,
+    "total_rewards_distributed": "344.00",
+    "start_time": 1753271036.9135273
+  },
+  "token_system": {
+    "balances": {
+      "development_wallet": "250000000.00",
+      "community_dao": "200000000.00",
+      "public_sale_contract": "150000000.00",
+      "archiving_rewards_pool": "400000000.00",
+      "archiver_1": "100.00",
+      "archiver_2": "100.00",
+      "archiver_3": "144.00",
+      "contract_creator": "9000",
+      "d4de7f88d54c2023": "1000",
+      "alice_address": "2500",
+      "bob_address": "1000",
+      "charlie_address": "500"
+    },
+    "staked_balances": {
+      "alice_address": "1000"
+    },
+    "stake_rewards": {
+      "alice_address": {
+        "last_reward_time": 1753271036.915509,
+        "total_rewards": 
