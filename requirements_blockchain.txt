@@ -8,6 +8,10 @@ ecdsa>=0.18.0
 flask>=2.3.0
 flask-cors>=4.0.0
 flask-limiter>=3.5.0
+fastapi>=0.104.1
+uvicorn>=0.24.0
+jinja2>=3.1.2
+strawberry-graphql>=0.200.0
 graphene>=3.3.0
 websockets>=11.0.0
 
@@ -15,10 +19,13 @@ websockets>=11.0.0
 psycopg2-binary>=2.9.7
 sqlalchemy>=2.0.20
 redis>=4.6.0
+redis[hiredis]==5.0.1
 alembic>=1.12.0
+qdrant-client>=1.6.0
+elasticsearch>=8.10.0
 
 # Réseau P2P et communication
-asyncio>=3.4.3
+# asyncio is built-in with Python 3.11+ - no external package needed
 aiohttp>=3.8.5
 python-socketio>=5.8.0
 twisted>=23.8.0
@@ -40,6 +47,7 @@ pyyaml>=6.0.1
 python-dotenv>=1.0.0
 requests>=2.31.0
 urllib3>=2.0.4
+pydantic>=2.5.0
 
 # Tests
 pytest>=7.4.0

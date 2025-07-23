@@ -470,7 +470,7 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.20.0.0/16
+        - subnet: 192.168.100.0/24
   
   # Réseau backend (services internes)
   databot-backend:
@@ -478,7 +478,7 @@ networks:
     internal: true
     ipam:
       config:
-        - subnet: 172.21.0.0/16
+        - subnet: 192.168.101.0/24
   
   # Réseau blockchain (isolé)
   databot-blockchain:
@@ -486,14 +486,14 @@ networks:
     internal: true
     ipam:
       config:
-        - subnet: 172.22.0.0/16
+        - subnet: 192.168.102.0/24
   
   # Réseau monitoring
   databot-monitoring:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.23.0.0/16
+        - subnet: 192.168.103.0/24
 
 # ==============================================================================
 # Secrets management

@@ -33,6 +33,8 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     build-essential \
+    # Mise à jour SQLite pour ChromaDB (>= 3.35.0)
+    wget \
     # Dépendances pour Playwright ARM64
     libnss3 \
     libnspr4 \
@@ -48,6 +50,17 @@ RUN apt-get update && apt-get install -y \
     libatspi2.0-0 \
     libgtk-3-0 \
     && rm -rf /var/lib/apt/lists/*
+
+# Installation de SQLite 3.40+ pour compatibilité ChromaDB
+RUN wget -O sqlite-autoconf.tar.gz "https://sqlite.org/2023/sqlite-autoconf-3430000.tar.gz" && \
+    tar xzf sqlite-autoconf.tar.gz && \
+    cd sqlite-autoconf-3430000 && \
+    ./configure --prefix=/usr && \
+    make && \
+    make install && \
+    cd .. && \
+    rm -rf sqlite-autoconf* && \
+    ldconfig
 
 # Création de l'utilisateur non-root dès le build
 RUN useradd -m -u 1000 databot
@@ -79,7 +92,21 @@ RUN apt-get update && apt-get install -y \
     libpq5 \
     curl \
     ca-certificates \
+    sqlite3 \
+    libsqlite3-0 \
+    wget \
     && rm -rf /var/lib/apt/lists/*
+
+# Installation de SQLite 3.40+ pour compatibility ChromaDB (même version que le builder)
+RUN wget -O sqlite-autoconf.tar.gz "https://sqlite.org/2023/sqlite-autoconf-3430000.tar.gz" && \
+    tar xzf sqlite-autoconf.tar.gz && \
+    cd sqlite-autoconf-3430000 && \
+    ./configure --prefix=/usr && \
+    make && \
+    make install && \
+    cd .. && \
+    rm -rf sqlite-autoconf* && \
+    ldconfig
 
 # Création de l'utilisateur non-root
 RUN useradd -m -u 1000 databot

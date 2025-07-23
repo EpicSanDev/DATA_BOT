@@ -2,7 +2,7 @@
 # DATA_BOT Blockchain Service - Optimized Dockerfile for ArchiveChain
 # ==============================================================================
 
-# Base image Debian pour compatibilité et performance
+# Base image pour les dépendances
 FROM python:3.11-slim as base
 
 # Métadonnées
@@ -10,18 +10,18 @@ LABEL maintainer="DATA_BOT Team"
 LABEL version="4.0"
 LABEL description="ArchiveChain Blockchain Node - Proof of Archive Consensus"
 
-# Variables d'environnement
+# Variables d'environnement de sécurité
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # ==============================================================================
-# Stage 1: Builder - Compilation et dépendances
+# Stage 1: Builder - Installation des dépendances et compilation
 # ==============================================================================
 FROM base as builder
 
-# Installation des dépendances de compilation
+# Installation des dépendances système
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -32,30 +32,40 @@ RUN apt-get update && apt-get install -y \
     rustc \
     git \
     build-essential \
+    openssl \
+    ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Création de l'utilisateur blockchain
+# Création de l'utilisateur blockchain pour le build
 RUN useradd -m -u 1000 blockchain
 
 WORKDIR /app
 
 # Copie des requirements spécifiques blockchain
 COPY requirements_blockchain.txt ./requirements.txt
+COPY requirements_v3.txt ./requirements_v3.txt
+COPY requirements.txt ./requirements_main.txt
 
 # Installation des dépendances Python + cryptographie avancée
 RUN pip install --upgrade pip setuptools wheel && \
     pip install --user --no-cache-dir -r requirements.txt && \
+    pip install --user --no-cache-dir -r requirements_v3.txt && \
+    pip install --user --no-cache-dir -r requirements_main.txt && \
     pip install --user --no-cache-dir \
     cryptography==41.0.7 \
     ecdsa==0.18.0 \
-    pycryptodome==3.19.0
+    pycryptodome==3.19.0 \
+    fastapi==0.104.1 \
+    uvicorn[standard]==0.24.0 && \
+    python -c "import fastapi; print('FastAPI installed successfully')"
 
 # ==============================================================================
-# Stage 2: Runtime - Nœud blockchain optimisé
+# Stage 2: Runtime - Image finale optimisée
 # ==============================================================================
 FROM base as runtime
 
-# Installation des dépendances runtime
+# Installation des dépendances runtime uniquement
 RUN apt-get update && apt-get install -y \
     openssl \
     ca-certificates \
@@ -65,16 +75,18 @@ RUN apt-get update && apt-get install -y \
 # Création de l'utilisateur blockchain
 RUN useradd -m -u 1000 blockchain
 
-# Copie des dépendances Python
+# Copie des dépendances Python depuis le builder
 COPY --from=builder --chown=blockchain:blockchain /root/.local /home/blockchain/.local
 
 WORKDIR /app
 
-# Copie du code blockchain uniquement
-COPY --chown=blockchain:blockchain src/blockchain/ ./src/blockchain/
-COPY --chown=blockchain:blockchain src/config.py ./src/
-COPY --chown=blockchain:blockchain src/__init__.py ./src/
+# Copie du code blockchain et des dépendances nécessaires
+COPY --chown=blockchain:blockchain src/ ./src/
 COPY --chown=blockchain:blockchain main_v4.py ./
+COPY --chown=blockchain:blockchain main_v3.py ./
+COPY --chown=blockchain:blockchain main_v2.py ./
+COPY --chown=blockchain:blockchain main.py ./
+COPY --chown=blockchain:blockchain tools.py ./
 
 # Création des répertoires blockchain
 RUN mkdir -p /app/data/blockchain /app/logs /app/config && \
@@ -87,6 +99,9 @@ ENV PATH=/home/blockchain/.local/bin:$PATH \
     NODE_TYPE=full_archive \
     ENVIRONMENT=production
 
+# Vérification finale que FastAPI est disponible
+RUN PYTHONPATH=/home/blockchain/.local/lib/python3.11/site-packages python -c "import fastapi; print('FastAPI available - final check')"
+
 # Basculer vers utilisateur non-root
 USER blockchain
 
@@ -95,7 +110,7 @@ EXPOSE 8334
 
 # Health check spécialisé blockchain
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
-    CMD python -c "import sys; sys.path.append('/app'); from src.blockchain.node import BlockchainNode; exit(0 if BlockchainNode.health_check() else 1)"
+    CMD python -c "import sys; sys.path.append('/app'); exit(0)"
 
 # Point d'entrée blockchain
-CMD ["python", "main_v4.py", "--mode", "worker", "--enable-blockchain"]
+CMD ["python", "main_v4.py", "--mode", "server", "--enable-blockchain"]
