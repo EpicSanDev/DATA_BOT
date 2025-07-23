@@ -1,268 +1,420 @@
-# Bot d'Archivage Internet Automatique
+# DATA_BOT v4 - Enhanced Analytics & GPU Support
 
-Un bot intelligent qui explore et archive automatiquement Internet en utilisant Ollama pour la prise de décision.
+## 🆕 Nouvelles Fonctionnalités v4
 
-## 🎯 Fonctionnalités
+### 🎯 Améliorations Majeures
 
-- **Exploration autonome** : Génère automatiquement des requêtes de recherche intelligentes avec Ollama
-- **Téléchargement intelligent** : Télécharge et classe les sites web automatiquement
-- **Screenshots de secours** : Capture des screenshots quand le téléchargement n'est pas possible
-- **Classification automatique** : Utilise Ollama pour catégoriser et évaluer le contenu
-- **Base de données** : Stockage et recherche des ressources archivées
-- **Limitation respectueuse** : Respecte les robots.txt et limite le taux de requêtes
+- **🚀 Support GPU avec Ollama** - Intégration Ollama avec support GPU NVIDIA pour des performances IA optimisées
+- **📊 Dashboard Analytics Avancé** - Interface de visualisation complète avec graphiques temps réel
+- **📱 Interface Mobile Améliorée** - Application mobile responsive avec visualisations interactives
+- **🐳 Configuration Docker Optimisée** - Support GPU complet avec script d'installation automatisé
+- **📈 Métriques en Temps Réel** - Monitoring complet avec Prometheus et Grafana
 
-## 🚀 Installation
+### 🔧 Nouvelles Fonctionnalités Techniques
 
-1. **Cloner le projet**
+#### 🤖 Intelligence Artificielle Renforcée
+- **Ollama avec GPU** : Utilisation des GPU NVIDIA pour accélérer les tâches d'IA
+- **Modèles multiples** : Support pour llama2, mistral, codellama
+- **API standardisée** : Interface unifiée pour tous les modèles d'IA
+
+#### 📊 Visualisations Avancées
+- **Graphiques interactifs** : Chart.js et D3.js pour des visualisations riches
+- **Dashboard temps réel** : Mise à jour automatique des métriques
+- **Graphes de réseau** : Visualisation des interconnexions entre sites
+- **Analytics mobile** : Interface optimisée pour smartphones et tablettes
+
+#### 🐳 Infrastructure Docker
+- **Support GPU natif** : Configuration automatique du support NVIDIA
+- **Services orchestrés** : PostgreSQL, Redis, Elasticsearch, OpenSearch
+- **Monitoring intégré** : Prometheus, Grafana, alertes automatiques
+- **Load balancing** : Nginx configuré pour haute disponibilité
+
+## 🚀 Installation Rapide avec Support GPU
+
+### Prérequis
+- Docker et Docker Compose
+- GPU NVIDIA (optionnel mais recommandé)
+- NVIDIA Container Toolkit (pour GPU)
+
+### Installation Automatisée
+
 ```bash
-cd /Users/bastienjavaux/Desktop/DATA_BOT
+# Cloner le repository
+git clone https://github.com/EpicSanDev/DATA_BOT.git
+cd DATA_BOT
+
+# Lancer l'installation avec support GPU
+./setup-gpu.sh
 ```
 
-2. **Installer les dépendances**
+Le script d'installation :
+- ✅ Vérifie et installe Docker si nécessaire
+- ✅ Configure le support GPU NVIDIA
+- ✅ Déploie tous les services
+- ✅ Initialise les bases de données
+- ✅ Télécharge les modèles Ollama
+- ✅ Lance les tests de santé
+
+### Installation Manuelle
+
 ```bash
-pip install -r requirements.txt
+# Copier la configuration
+cp .env.example .env
+
+# Construire et démarrer avec GPU
+docker-compose -f docker-compose-gpu.yml up -d --build
+
+# Ou sans GPU
+docker-compose up -d --build
 ```
 
-3. **Installer Ollama** (si pas déjà fait)
-```bash
-# Sur macOS
-brew install ollama
+## 📊 Interfaces Utilisateur
 
-# Démarrer Ollama
-ollama serve
+### 🖥️ Dashboard Principal
+**URL**: `http://localhost:8080/dashboard/analytics`
 
-# Télécharger un modèle (ex: llama2)
-ollama pull llama2
-```
+**Fonctionnalités**:
+- 📈 Statistiques temps réel (sites, pages, données, taux de succès)
+- 📊 Graphiques d'activité quotidienne
+- 🌐 Distribution par domaines
+- 📊 Statuts des archives
+- ⚡ Métriques de performance
+- 🕸️ Graphe de liens inter-sites
+- 📋 Activité récente détaillée
+- 📤 Export des données
 
-4. **Configuration**
-Ajustez les paramètres dans `.env` selon vos besoins.
+### 📱 Interface Mobile
+**URL**: `http://localhost:8080/mobile`
 
-## 🎮 Utilisation
+**Fonctionnalités**:
+- 📊 Dashboard mobile adaptatif
+- 📈 Graphiques optimisés tactile
+- 🔍 Recherche avancée
+- 📊 Analytics en temps réel
+- 💾 Mode hors ligne
+- 📤 Export mobile
 
-### Mode Exploration
-Découvre de nouvelles URLs à partir de requêtes générées par Ollama :
-```bash
-python main.py --mode explore
-```
+### 🔧 Interface d'Administration
+**URL**: `http://localhost:8082`
 
-### Mode Traitement
-Traite les URLs en attente de téléchargement/screenshot :
-```bash
-python main.py --mode process
-```
-
-### Mode Continu (Recommandé)
-Explore et traite en continu :
-```bash
-python main.py --mode continuous
-```
-
-### Avec URLs de départ
-```bash
-python main.py --mode continuous --urls https://news.ycombinator.com https://reddit.com/r/technology
-```
-
-## 🛠️ Outils
-
-### Statistiques
-```bash
-python tools.py stats
-```
-
-### Recherche dans l'archive
-```bash
-python tools.py search "intelligence artificielle"
-```
-
-### Ressources récentes
-```bash
-python tools.py recent
-```
+**Fonctionnalités**:
+- ⚙️ Configuration des services
+- 📊 Monitoring des performances
+- 🤖 Gestion des modèles IA
+- 📋 Gestion des tâches
+- 🔍 Logs système
 
 ## 📁 Structure du Projet
 
+Le projet a été réorganisé pour une meilleure maintenabilité :
+
 ```
 DATA_BOT/
-├── main.py              # Point d'entrée principal
-├── tools.py             # Outils de gestion
-├── requirements.txt     # Dépendances Python
-├── .env                 # Configuration
-├── src/
-│   ├── config.py        # Configuration et paramètres
-│   ├── models.py        # Modèles de données
-│   ├── ollama_client.py # Client Ollama pour IA
-│   ├── explorer.py      # Exploration web intelligente
-│   ├── downloader.py    # Téléchargement de ressources
-│   ├── screenshot.py    # Capture de screenshots
-│   └── database.py      # Gestion base de données
-├── archive/             # Fichiers téléchargés (créé auto)
-├── screenshots/         # Screenshots (créé auto)
-├── logs/                # Logs d'exécution (créé auto)
-└── data/                # Base de données SQLite (créé auto)
+├── src/                    # Code source principal
+│   ├── core/              # Logique métier centrale
+│   │   ├── config.py      # Configuration
+│   │   ├── models.py      # Modèles de données
+│   │   ├── enhanced_ai_client.py  # Client IA
+│   │   └── ...
+│   ├── api/               # APIs et interfaces web
+│   │   ├── api_server.py  # Serveur API principal
+│   │   ├── admin_interface.py  # Interface admin
+│   │   └── ...
+│   ├── database/          # Gestionnaires de base de données
+│   ├── ml/                # Machine Learning et IA
+│   ├── utils/             # Utilitaires et helpers
+│   ├── web/               # Scraping et capture web
+│   └── blockchain/        # Intégration blockchain
+├── tests/                 # Tests unitaires et d'intégration
+├── scripts/               # Scripts d'installation et utilitaires
+├── config/                # Fichiers de configuration
+├── docs/                  # Documentation
+├── docker/                # Configuration Docker
+├── k8s/                   # Configuration Kubernetes
+└── security/              # Outils et audits de sécurité
 ```
 
-## ⚙️ Configuration
+## 🎯 Endpoints API v4
 
-Principales options dans `.env` :
+### Analytics API
+```bash
+# Statistiques générales
+GET /api/v4/analytics/stats
 
-```env
-# Ollama
-OLLAMA_HOST=http://localhost:11434
+# Activité récente
+GET /api/v4/analytics/recent?limit=50
+
+# Données quotidiennes
+GET /api/v4/analytics/daily?days=30
+
+# Distribution des domaines
+GET /api/v4/analytics/domains?limit=10
+
+# Distribution des statuts
+GET /api/v4/analytics/status
+
+# Métriques de performance
+GET /api/v4/analytics/performance?hours=24
+
+# Graphe de réseau
+GET /api/v4/analytics/network?limit=50
+
+# Export des données
+GET /api/v4/analytics/export
+```
+
+### Recherche Avancée
+```bash
+# Recherche avec clustering
+POST /api/v4/search/advanced
+{
+  "query": "intelligence artificielle",
+  "search_engine": "auto",
+  "enable_clustering": true,
+  "clustering_algorithm": "hdbscan",
+  "limit": 20
+}
+```
+
+### Gestion ML
+```bash
+# Catégorisation automatique
+POST /api/v4/ml/categorize
+{
+  "resource_ids": [1, 2, 3],
+  "confidence_threshold": 0.3,
+  "auto_save": true
+}
+
+# Clustering des résultats
+POST /api/v4/clustering/run
+{
+  "algorithm": "hdbscan",
+  "min_cluster_size": 3
+}
+```
+
+## 🐳 Architecture Docker
+
+### Services Déployés
+
+| Service | Port | Description |
+|---------|------|-------------|
+| **DATA_BOT v4** | 8080 | Application principale |
+| **Ollama** | 11434 | Service IA avec GPU |
+| **PostgreSQL** | 5432 | Base de données principale |
+| **Redis** | 6379 | Cache et coordination |
+| **Elasticsearch** | 9200 | Recherche et indexation |
+| **OpenSearch** | 9201 | Alternative à Elasticsearch |
+| **Qdrant** | 6333 | Base vectorielle |
+| **Prometheus** | 9090 | Métriques et monitoring |
+| **Grafana** | 3000 | Visualisation des métriques |
+| **Nginx** | 80/443 | Load balancer |
+
+### 🚀 Support GPU
+
+Le support GPU est automatiquement détecté et configuré :
+
+```yaml
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: all
+          capabilities: [gpu]
+```
+
+**Avantages du GPU** :
+- ⚡ **10x plus rapide** pour l'analyse de contenu
+- 🧠 **Modèles plus complexes** utilisables
+- 🔄 **Traitement concurrent** amélioré
+- 💾 **Utilisation mémoire optimisée**
+
+## 📈 Monitoring et Métriques
+
+### Prometheus Metrics
+- `databot_sites_total` - Nombre total de sites archivés
+- `databot_processing_duration_seconds` - Temps de traitement
+- `databot_errors_total` - Nombre d'erreurs
+- `databot_gpu_utilization` - Utilisation GPU
+
+### Grafana Dashboards
+- **Overview** : Vue d'ensemble système
+- **Performance** : Métriques de performance
+- **AI/ML** : Utilisation des modèles IA
+- **Storage** : Utilisation du stockage
+
+### Alertes Automatiques
+- 🚨 Erreurs critiques
+- ⚡ Performance dégradée
+- 💾 Espace disque faible
+- 🔥 Surchauffe GPU
+
+## 🔧 Configuration Avancée
+
+### Variables d'Environnement
+
+```bash
+# Support GPU
+NVIDIA_VISIBLE_DEVICES=all
+CUDA_VISIBLE_DEVICES=0
+
+# Base de données
+DATABASE_URL=postgresql://databot:password@postgres:5432/databot_v4
+REDIS_URL=redis://redis:6379/0
+
+# Recherche
+ELASTICSEARCH_HOST=http://elasticsearch:9200
+OPENSEARCH_HOST=http://opensearch:9201
+
+# IA
+OLLAMA_HOST=http://ollama:11434
 OLLAMA_MODEL=llama2
 
-# Limites
-MAX_DEPTH=3
-MAX_PAGES_PER_DOMAIN=50
-CONCURRENT_DOWNLOADS=5
-
-# Délais
-DELAY_BETWEEN_REQUESTS=1
-SCREENSHOT_TIMEOUT=30
+# Monitoring
+ENABLE_PROMETHEUS=true
+PROMETHEUS_PORT=9090
 ```
 
-## 🤖 Intelligence Ollama
-
-Le bot utilise Ollama pour :
-
-1. **Génération de requêtes** : Crée des requêtes de recherche variées et intéressantes
-2. **Évaluation d'URLs** : Détermine si une URL vaut la peine d'être archivée
-3. **Catégorisation** : Classe automatiquement le contenu découvert
-4. **Priorisation** : Assigne des priorités aux ressources
-
-## 📊 Fonctionnement
-
-1. **Phase d'exploration** :
-   - Ollama génère des requêtes de recherche intelligentes
-   - Recherche sur Google/DuckDuckGo/Bing
-   - Évalue chaque URL trouvée avec Ollama
-   - Découvre de nouveaux liens depuis les pages visitées
-
-2. **Phase de traitement** :
-   - Télécharge les ressources approuvées
-   - Si échec, capture un screenshot
-   - Catégorise le contenu avec Ollama
-   - Extrait les liens pour futures explorations
-
-3. **Phase de classification** :
-   - Analyse le contenu téléchargé
-   - Assigne catégories, tags et priorités
-   - Stocke les métadonnées dans la base
-
-## 🔒 Respect des Serveurs
-
-- Délais configurables entre requêtes
-- Respect des robots.txt (optionnel)
-- User-Agent personnalisable
-- Limitation par domaine
-- Headers respectueux
-
-## 📈 Monitoring
-
-Les logs détaillés permettent de suivre :
-- Découvertes d'URLs
-- Succès/échecs de téléchargement
-- Décisions d'Ollama
-- Statistiques par domaine
-- Performance globale
-
-## 🛡️ Sécurité
-
-- Validation stricte des URLs
-- Filtrage de contenu malveillant
-- Limitation de taille des fichiers
-- Nettoyage des noms de fichiers
-- Gestion d'erreurs robuste
-
-## 🎯 Cas d'Usage
-
-- **Veille technologique** : Archive automatiquement les dernières actualités tech
-- **Recherche académique** : Collecte des ressources éducatives
-- **Backup web** : Sauvegarde de sites importants
-- **Documentation** : Archive de documentation technique
-- **Culture numérique** : Préservation de contenu culturel
-
-## 🔧 Développement
-
-Pour contribuer ou personnaliser :
-
-1. **Tests** :
-```bash
-python -m pytest tests/
-```
-
-2. **Linting** :
-```bash
-flake8 src/
-```
-
-3. **Ajout de nouveaux moteurs de recherche** :
-Modifiez `src/explorer.py`
-
-4. **Personnalisation Ollama** :
-Ajustez les prompts dans `src/ollama_client.py`
-
-## 🚀 Prochaines Fonctionnalités
-
-### ✅ VERSION 2.0 - DISPONIBLE MAINTENANT!
-
-Toutes les fonctionnalités v2 ont été implémentées:
-
-- [x] **Interface web de gestion** - Interface moderne accessible sur http://localhost:8080
-- [x] **Support d'autres modèles IA** - OpenAI, LLM locaux, fallback automatique  
-- [x] **Export en différents formats** - JSON, CSV, HTML, XML, ZIP avec fichiers
-- [x] **Détection de doublons** - URL, contenu, titre, similarité intelligente
-- [x] **Compression intelligente** - GZIP/ZIP adaptatif selon type de fichier
-- [x] **API REST complète** - Endpoints pour toutes les fonctionnalités
-- [x] **Support de proxies** - Rotation, test, failover automatique
-- [x] **Archivage programmé** - Scheduler type cron intégré
-
-### 🎮 Démarrage rapide v2
+### Optimisation GPU
 
 ```bash
-# Démarrer l'interface web v2
-python main_v2.py --mode server
+# Vérifier l'utilisation GPU
+docker exec databot-ollama nvidia-smi
 
-# Ouvrir http://localhost:8080
+# Monitoring GPU en temps réel
+watch -n 1 'docker exec databot-ollama nvidia-smi'
+
+# Logs Ollama
+docker logs -f databot-ollama
 ```
 
-### 📱 Interface Web v2
+## 🚨 Dépannage
 
-![DATA_BOT v2 Interface](https://github.com/user-attachments/assets/c856c8c0-0fce-4b27-b0e7-4187bf7091de)
+### Problèmes Courants
 
-L'interface v2 offre:
-- 📊 Tableau de bord avec statistiques temps réel
-- 🔍 Recherche avancée dans l'archive
-- 📤 Export en un clic vers multiple formats
-- ⚙️ Gestion des tâches programmées
-- 🖥️ Interface responsive et moderne
+**1. GPU non détecté**
+```bash
+# Vérifier NVIDIA driver
+nvidia-smi
 
-### 📖 Documentation v2
+# Réinstaller NVIDIA Container Toolkit
+sudo apt-get install nvidia-container-toolkit
+sudo systemctl restart docker
+```
 
-Consultez [GUIDE_V2.md](GUIDE_V2.md) pour la documentation complète des nouvelles fonctionnalités.
+**2. Ollama ne démarre pas**
+```bash
+# Vérifier les logs
+docker logs databot-ollama
 
----
+# Redémarrer le service
+docker-compose restart ollama
+```
 
-## 🎯 Roadmap v3 (Futur)
+**3. Dashboard ne charge pas**
+```bash
+# Vérifier l'état des services
+docker-compose ps
 
-- [ ] Interface mobile native
-- [ ] Support bases vectorielles (ChromaDB, Pinecone)
-- [ ] Intégration Elasticsearch  
-- [ ] Plugin navigateur
-- [ ] Mode distribué multi-machines
+# Redémarrer l'application
+docker-compose restart databot-v4
+```
 
-## 📞 Support
+### Commandes de Diagnostic
 
-Pour toute question ou problème :
-1. Vérifiez les logs dans `logs/`
-2. Consultez la configuration `.env`
-3. Testez la connexion Ollama
-4. Vérifiez les permissions de fichiers
+```bash
+# État de tous les services
+docker-compose ps
+
+# Logs en temps réel
+docker-compose logs -f
+
+# Utilisation des ressources
+docker stats
+
+# Tests de santé
+curl http://localhost:8080/health
+curl http://localhost:11434/api/tags
+```
+
+## 📚 Documentation API
+
+### Authentification
+Toutes les API utilisent l'authentification par token :
+
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+     http://localhost:8080/api/v4/analytics/stats
+```
+
+### Exemples d'Utilisation
+
+**Recherche avancée** :
+```python
+import requests
+
+response = requests.post('http://localhost:8080/api/v4/search/advanced', 
+    json={
+        'query': 'machine learning',
+        'enable_clustering': True,
+        'limit': 50
+    }
+)
+results = response.json()
+```
+
+**Analytics** :
+```javascript
+fetch('/api/v4/analytics/stats')
+    .then(response => response.json())
+    .then(data => {
+        console.log('Sites:', data.totalSites);
+        console.log('Success rate:', data.successRate);
+    });
+```
+
+## 🎯 Feuille de Route
+
+### 🔄 Prochaines Versions
+
+**v4.1** (Q1 2024)
+- [ ] Support AMD GPU
+- [ ] Interface vocale
+- [ ] API GraphQL complète
+- [ ] Clustering temps réel
+
+**v4.2** (Q2 2024)
+- [ ] Multi-tenancy
+- [ ] Federated search
+- [ ] Advanced ML pipelines
+- [ ] Mobile app native
+
+**v5.0** (Q3 2024)
+- [ ] Kubernetes native
+- [ ] Edge computing
+- [ ] Blockchain integration
+- [ ] AR/VR visualization
+
+## 🤝 Contribution
+
+1. **Fork** le repository
+2. **Créer** une branche feature
+3. **Implémenter** les changements
+4. **Tester** avec GPU et sans GPU
+5. **Soumettre** une pull request
+
+### Standards de Code
+- Python 3.11+
+- Type hints obligatoires
+- Tests unitaires requis
+- Documentation complète
 
 ## 📄 Licence
 
-Ce projet est sous licence MIT - voir le fichier LICENSE pour plus de détails.
+MIT License - Voir [LICENSE](LICENSE) pour plus de détails.
 
 ---
 
-**🤖 Happy Archiving!**
+**🚀 DATA_BOT v4 - L'avenir de l'archivage intelligent avec IA et GPU !**

@@ -1,296 +1,459 @@
+"""
+DATA_BOT v4 - Enterprise-grade archiving platform
+- Complete admin interface
+- OpenSearch support as ES alternative
+- Automatic result clustering
+- GraphQL API
+- Machine learning categorization
+- Kubernetes deployment support
+- 100% Docker containerization
+"""
+
 import asyncio
 import logging
+import argparse
 import signal
 import sys
+import os
 from datetime import datetime
-from typing import List, Optional
-from src.config import Config
-from src.models import WebResource, ArchiveStatus
-from src.ollama_client import OllamaClient
-from src.explorer import WebExplorer
-from src.downloader import WebDownloader
-from src.screenshot_robust import ScreenshotCapture
-from src.database import DatabaseManager
+from typing import List, Optional, Dict, Any
+from pathlib import Path
+
+# Ajouter le répertoire src au path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from src.core.config import Config
+from src.core.models import WebResource, ArchiveStatus
+from src.core.enhanced_ai_client import EnhancedAIClient
+from src.database.database import DatabaseManager
+from src.api.api_server import APIServerV4
+from src.api.admin_interface import AdminInterface
+from src.database.opensearch_manager import OpenSearchManager
+from src.ml.ml_categorizer import MLCategorizer
+from src.core.result_clusterer import ResultClusterer
+from src.api.graphql_server import GraphQLServer
 
 logger = logging.getLogger(__name__)
 
-class ArchiveBot:
+class DataBotV4(DataBotV3):
+    """Classe principale pour DATA_BOT v4 avec fonctionnalités enterprise"""
+    
     def __init__(self):
-        self.running = False
-        self.stats = {
-            'start_time': None,
-            'processed': 0,
-            'downloaded': 0,
-            'screenshots': 0,
-            'failed': 0
-        }
+        super().__init__()
+        
+        # Nouveaux composants v4
+        self.components.update({
+            'opensearch_manager': None,
+            'admin_interface': None,
+            'ml_categorizer': None,
+            'result_clusterer': None,
+            'graphql_server': None,
+            'api_server_v4': None
+        })
+        
+        # Configuration v4 - Initialize as a dictionary if it doesn't exist
+        if not hasattr(self, 'config'):
+            self.config = {}
+            
+        self.config.update({
+            'admin_port': int(os.getenv('ADMIN_PORT', 8082)),
+            'graphql_port': int(os.getenv('GRAPHQL_PORT', 8083)),
+            'use_opensearch': os.getenv('USE_OPENSEARCH', 'false').lower() == 'true',
+            'enable_ml_categorization': os.getenv('ENABLE_ML_CATEGORIZATION', 'true').lower() == 'true',
+            'enable_result_clustering': os.getenv('ENABLE_RESULT_CLUSTERING', 'true').lower() == 'true',
+            'kubernetes_namespace': os.getenv('KUBERNETES_NAMESPACE', 'databot'),
+        })
     
-    async def start(self, mode: str = "explore", seed_urls: List[str] = None):
-        """Démarre le bot d'archivage"""
-        logger.info("🤖 Démarrage du Bot d'Archivage Internet")
-        
-        # Configuration
-        Config.setup_directories()
-        Config.setup_logging()
-        
-        self.running = True
-        self.stats['start_time'] = datetime.now()
-        
-        # Gestionnaire d'interruption
-        def signal_handler(signum, frame):
-            logger.info("Signal d'arrêt reçu, arrêt en cours...")
-            self.running = False
-        
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-        
+    async def _initialize_components(self, args):
+        """Initialise tous les composants v4"""
         try:
-            if mode == "explore":
-                await self._run_exploration_mode(seed_urls)
-            elif mode == "process":
-                await self._run_processing_mode()
-            elif mode == "continuous":
-                await self._run_continuous_mode(seed_urls)
-            else:
-                logger.error(f"Mode inconnu: {mode}")
-                
+            # Initialiser d'abord les composants v3
+            await super()._initialize_components(args)
+            
+            # OpenSearch Manager (alternative à Elasticsearch)
+            if self.config.get('use_opensearch', False) or args.enable_opensearch:
+                logger.info("Initialisation d'OpenSearch...")
+                from src.database.opensearch_manager import OpenSearchManager
+                self.components['opensearch_manager'] = OpenSearchManager(
+                    host=os.getenv('OPENSEARCH_HOST', 'localhost'),
+                    port=int(os.getenv('OPENSEARCH_PORT', 9201))
+                )
+                await self.components['opensearch_manager'].initialize()
+            
+            # ML Categorizer
+            if self.config.get('enable_ml_categorization', True):
+                logger.info("Initialisation du catégoriseur ML...")
+                from src.ml.ml_categorizer import MLCategorizer
+                self.components['ml_categorizer'] = MLCategorizer()
+                await self.components['ml_categorizer'].initialize()
+            
+            # Result Clusterer
+            if self.config.get('enable_result_clustering', True):
+                logger.info("Initialisation du clusterer de résultats...")
+                from src.core.result_clusterer import ResultClusterer
+                self.components['result_clusterer'] = ResultClusterer()
+                await self.components['result_clusterer'].initialize()
+            
+            # GraphQL Server
+            if args.enable_graphql:
+                logger.info("Initialisation du serveur GraphQL...")
+                from src.api.graphql_server import GraphQLServer
+                self.components['graphql_server'] = GraphQLServer(
+                    database_manager=self.components['database_manager'],
+                    port=self.config['graphql_port']
+                )
+            
+            # Admin Interface
+            if args.enable_admin or args.mode == 'admin':
+                logger.info("Initialisation de l'interface d'administration...")
+                from src.api.admin_interface import AdminInterface
+                self.components['admin_interface'] = AdminInterface(
+                    database_manager=self.components['database_manager'],
+                    port=self.config['admin_port']
+                )
+            
+            # API Server v4 (étend v3)
+            if args.mode == 'server' or args.enable_api:
+                logger.info("Initialisation du serveur API v4...")
+                from src.api.api_server import APIServerV4
+                self.components['api_server_v4'] = APIServerV4(
+                    database_manager=self.components['database_manager'],
+                    opensearch_manager=self.components.get('opensearch_manager'),
+                    ml_categorizer=self.components.get('ml_categorizer'),
+                    result_clusterer=self.components.get('result_clusterer'),
+                    port=self.config['port']
+                )
+            
+            logger.info("Tous les composants v4 ont été initialisés avec succès")
+            
         except Exception as e:
-            logger.error(f"Erreur fatale: {e}")
-        finally:
-            await self._cleanup()
+            logger.error(f"Erreur lors de l'initialisation des composants v4: {e}")
+            raise
     
-    async def _run_exploration_mode(self, seed_urls: List[str] = None):
-        """Mode exploration : découvre de nouvelles URLs"""
-        logger.info("🔍 Mode Exploration")
-        
-        async with DatabaseManager() as db:
-            async with OllamaClient() as ollama:
-                explorer = WebExplorer()
-                
-                if seed_urls:
-                    # Exploration à partir d'URLs de départ
-                    resources = await explorer.explore_from_seed_urls(seed_urls, ollama, db)
-                else:
-                    # Exploration autonome avec requêtes générées
-                    resources = await explorer.explore_from_queries(ollama, db)
-                
-                logger.info(f"✅ Exploration terminée: {len(resources)} nouvelles ressources découvertes")
-    
-    async def _run_processing_mode(self):
-        """Mode traitement : traite les URLs en attente"""
-        logger.info("⚙️ Mode Traitement")
-        
-        async with DatabaseManager() as db:
-            async with OllamaClient() as ollama:
-                async with WebDownloader() as downloader:
-                    async with ScreenshotCapture() as screenshot:
-                        
-                        # Récupérer les ressources en attente
-                        pending_resources = await db.get_pending_resources(limit=500)
-                        logger.info(f"📋 {len(pending_resources)} ressources à traiter")
-                        
-                        # Traiter les ressources par lots
-                        batch_size = Config.CONCURRENT_DOWNLOADS
-                        for i in range(0, len(pending_resources), batch_size):
-                            if not self.running:
-                                break
-                            
-                            batch = pending_resources[i:i + batch_size]
-                            await self._process_batch(batch, downloader, screenshot, ollama, db)
-                            
-                            # Pause entre les lots
-                            await asyncio.sleep(1)
-                        
-                        logger.info("✅ Traitement terminé")
-    
-    async def _run_continuous_mode(self, seed_urls: List[str] = None):
-        """Mode continu : explore et traite en continu"""
-        logger.info("🔄 Mode Continu")
-        
-        async with DatabaseManager() as db:
-            async with OllamaClient() as ollama:
-                async with WebDownloader() as downloader:
-                    async with ScreenshotCapture() as screenshot:
-                        explorer = WebExplorer()
-                        
-                        cycle = 0
-                        while self.running:
-                            cycle += 1
-                            logger.info(f"🔄 Cycle {cycle}")
-                            
-                            # Phase 1: Exploration (toutes les 3 cycles)
-                            if cycle % 3 == 1:
-                                if seed_urls and cycle == 1:
-                                    await explorer.explore_from_seed_urls(seed_urls, ollama, db)
-                                else:
-                                    await explorer.explore_from_queries(ollama, db)
-                            
-                            # Phase 2: Traitement
-                            pending = await db.get_pending_resources(limit=50)
-                            if pending:
-                                logger.info(f"⚙️ Traitement de {len(pending)} ressources")
-                                
-                                batch_size = min(Config.CONCURRENT_DOWNLOADS, len(pending))
-                                for i in range(0, len(pending), batch_size):
-                                    if not self.running:
-                                        break
-                                    
-                                    batch = pending[i:i + batch_size]
-                                    await self._process_batch(batch, downloader, screenshot, ollama, db)
-                            
-                            # Phase 3: Statistiques
-                            stats = await db.get_archive_stats()
-                            self._log_stats(stats)
-                            
-                            # Pause entre les cycles
-                            if self.running:
-                                logger.info("💤 Pause avant le prochain cycle...")
-                                await asyncio.sleep(60)  # 1 minute
-                        
-                        logger.info("🛑 Mode continu arrêté")
-    
-    async def _process_batch(self, batch: List[WebResource], downloader: WebDownloader, 
-                           screenshot: ScreenshotCapture, ollama: OllamaClient, db: DatabaseManager):
-        """Traite un lot de ressources"""
+    async def start_services(self, args):
+        """Démarre tous les services v4"""
         tasks = []
         
-        for resource in batch:
-            if not self.running:
-                break
-            
-            task = self._process_single_resource(resource, downloader, screenshot, ollama, db)
-            tasks.append(task)
+        # Démarrer les services v3
+        v3_tasks = await super().start_services(args)
+        if v3_tasks:
+            tasks.extend(v3_tasks)
         
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # Compter les résultats
-            for result in results:
-                if isinstance(result, Exception):
-                    self.stats['failed'] += 1
-                    logger.error(f"Erreur traitement: {result}")
-                else:
-                    self.stats['processed'] += 1
-                    if result and result.status == ArchiveStatus.DOWNLOADED:
-                        self.stats['downloaded'] += 1
-                    elif result and result.status == ArchiveStatus.SCREENSHOT:
-                        self.stats['screenshots'] += 1
-                    else:
-                        self.stats['failed'] += 1
+        # GraphQL Server
+        if self.components.get('graphql_server'):
+            tasks.append(
+                asyncio.create_task(
+                    self.components['graphql_server'].start(),
+                    name="graphql_server"
+                )
+            )
+        
+        # Admin Interface
+        if self.components.get('admin_interface'):
+            tasks.append(
+                asyncio.create_task(
+                    self.components['admin_interface'].start(),
+                    name="admin_interface"
+                )
+            )
+        
+        # API Server v4
+        if self.components.get('api_server_v4'):
+            tasks.append(
+                asyncio.create_task(
+                    self.components['api_server_v4'].start(),
+                    name="api_server_v4"
+                )
+            )
+        
+        return tasks
     
-    async def _process_single_resource(self, resource: WebResource, downloader: WebDownloader,
-                                     screenshot: ScreenshotCapture, ollama: OllamaClient, 
-                                     db: DatabaseManager) -> Optional[WebResource]:
-        """Traite une seule ressource"""
-        try:
-            logger.info(f"🔄 Traitement: {resource.url}")
-            
-            # Essayer de télécharger d'abord
-            resource = await downloader.download_resource(resource)
-            
-            if resource.status == ArchiveStatus.DOWNLOADED:
-                # Si téléchargement réussi, extraire les métadonnées
-                if resource.file_path:
-                    # Lire un aperçu du contenu pour la catégorisation
-                    try:
-                        with open(resource.file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            content_preview = f.read(2000)
-                        
-                        # Catégoriser avec Ollama
-                        category_info = await ollama.categorize_content(
-                            resource.url, 
-                            resource.title or "", 
-                            content_preview
-                        )
-                        resource.metadata.update(category_info)
-                        
-                    except Exception as e:
-                        logger.warning(f"Erreur lecture contenu {resource.file_path}: {e}")
+    async def run_ml_categorization(self, args):
+        """Exécute la catégorisation ML sur le contenu existant"""
+        if not self.components.get('ml_categorizer'):
+            logger.error("ML Categorizer non initialisé")
+            return
+        
+        logger.info("Début de la catégorisation ML...")
+        
+        # Récupérer toutes les ressources non catégorisées
+        resources = await self.components['database_manager'].get_uncategorized_resources()
+        
+        total = len(resources)
+        logger.info(f"Catégorisation de {total} ressources...")
+        
+        for i, resource in enumerate(resources, 1):
+            try:
+                categories = await self.components['ml_categorizer'].categorize_resource(resource)
+                await self.components['database_manager'].update_resource_categories(
+                    resource.id, categories
+                )
                 
-                # Extraire les liens pour futures explorations
-                try:
-                    links = await downloader.extract_links(resource)
-                    for link in links[:10]:  # Limiter le nombre de liens
-                        await db.mark_url_as_discovered(link, resource.url, resource.depth + 1)
-                except Exception as e:
-                    logger.warning(f"Erreur extraction liens {resource.url}: {e}")
-            
-            else:
-                # Si téléchargement échoué, essayer un screenshot
-                logger.info(f"📸 Screenshot de secours: {resource.url}")
-                resource = await screenshot.capture_screenshot(resource)
-                
-                if resource.status == ArchiveStatus.SCREENSHOT:
-                    # Catégoriser avec le texte extrait du screenshot
-                    content_preview = resource.metadata.get('page_text_preview', '')
-                    if content_preview:
-                        category_info = await ollama.categorize_content(
-                            resource.url,
-                            resource.title or "",
-                            content_preview
-                        )
-                        resource.metadata.update(category_info)
+                if i % 100 == 0:
+                    logger.info(f"Progression: {i}/{total} ({i/total*100:.1f}%)")
                     
-                    # Extraire les liens visibles
+            except Exception as e:
+                logger.error(f"Erreur lors de la catégorisation de {resource.url}: {e}")
+        
+        logger.info("Catégorisation ML terminée")
+    
+    async def shutdown(self):
+        """Arrête proprement tous les composants v4"""
+        logger = logging.getLogger(__name__)
+        logger.info("🔄 Arrêt de DATA_BOT v4...")
+        
+        try:
+            # Arrêter les composants v4 spécifiques
+            if hasattr(self, 'components') and self.components:
+                if self.components.get('kubernetes_deployer'):
+                    logger.info("Arrêt du déployeur Kubernetes...")
+                    # Note: Kubernetes deployer n'a généralement pas besoin d'arrêt explicite
+                
+                if self.components.get('api_server_v4'):
+                    logger.info("Arrêt du serveur API v4...")
                     try:
-                        links = await screenshot.extract_links_from_screenshot(resource)
-                        for link in links[:5]:  # Moins de liens pour les screenshots
-                            await db.mark_url_as_discovered(link, resource.url, resource.depth + 1)
+                        await self.components['api_server_v4'].stop()
                     except Exception as e:
-                        logger.warning(f"Erreur extraction liens screenshot {resource.url}: {e}")
+                        logger.warning(f"Erreur lors de l'arrêt du serveur API v4: {e}")
+                
+                if self.components.get('graphql_server'):
+                    logger.info("Arrêt du serveur GraphQL...")
+                    try:
+                        await self.components['graphql_server'].stop()
+                    except Exception as e:
+                        logger.warning(f"Erreur lors de l'arrêt du serveur GraphQL: {e}")
+                
+                if self.components.get('admin_interface'):
+                    logger.info("Arrêt de l'interface d'administration...")
+                    try:
+                        await self.components['admin_interface'].stop()
+                    except Exception as e:
+                        logger.warning(f"Erreur lors de l'arrêt de l'interface admin: {e}")
             
-            # Sauvegarder les mises à jour
-            await db.save_resource(resource)
-            
-            logger.info(f"✅ Traité: {resource.url} -> {resource.status.value}")
-            return resource
+            # Appeler le nettoyage des classes parentes
+            await super()._cleanup()
+            logger.info("✅ DATA_BOT v4 arrêté proprement")
             
         except Exception as e:
-            logger.error(f"❌ Erreur traitement {resource.url}: {e}")
-            resource.status = ArchiveStatus.FAILED
-            resource.error_message = str(e)
-            await db.save_resource(resource)
-            return resource
+            logger.error(f"❌ Erreur lors de l'arrêt: {e}")
+            raise
     
-    def _log_stats(self, db_stats):
-        """Affiche les statistiques"""
-        runtime = datetime.now() - self.stats['start_time']
+    async def run_result_clustering(self, args):
+        """Exécute le clustering automatique des résultats"""
+        if not self.components.get('result_clusterer'):
+            logger.error("Result Clusterer non initialisé")
+            return
         
-        logger.info("📊 STATISTIQUES")
-        logger.info(f"⏱️  Temps d'exécution: {runtime}")
-        logger.info(f"🔍 Total découvert: {db_stats.total_discovered}")
-        logger.info(f"💾 Total téléchargé: {db_stats.total_downloaded}")
-        logger.info(f"📸 Total screenshots: {db_stats.total_screenshots}")
-        logger.info(f"❌ Total échecs: {db_stats.total_failed}")
-        logger.info(f"💽 Taille totale: {db_stats.total_size_mb:.2f} MB")
-        logger.info(f"🌐 Domaines explorés: {db_stats.domains_discovered}")
-        logger.info("━" * 50)
+        logger.info("Début du clustering des résultats...")
+        
+        # Récupérer toutes les ressources
+        resources = await self.components['database_manager'].get_all_resources()
+        
+        # Effectuer le clustering
+        clusters = await self.components['result_clusterer'].cluster_resources(resources)
+        
+        # Sauvegarder les clusters
+        await self.components['database_manager'].save_clusters(clusters)
+        
+        logger.info(f"Clustering terminé: {len(clusters)} clusters créés")
     
-    async def _cleanup(self):
-        """Nettoyage avant arrêt"""
-        logger.info("🧹 Nettoyage en cours...")
-        # Ici on pourrait ajouter du nettoyage spécifique
-        logger.info("✅ Nettoyage terminé")
+    async def deploy_to_kubernetes(self, args):
+        """Déploie l'application sur Kubernetes"""
+        logger.info("Déploiement sur Kubernetes...")
+        
+        from src.utils.kubernetes_deployer import KubernetesDeployer
+        deployer = KubernetesDeployer(
+            namespace=self.config['kubernetes_namespace']
+        )
+        
+        await deployer.deploy(
+            environment=args.k8s_environment or 'development',
+            replicas=args.k8s_replicas or 1
+        )
+        
+        logger.info("Déploiement Kubernetes terminé")
 
-
-async def main():
-    """Point d'entrée principal"""
-    import argparse
+def create_argument_parser():
+    """Créé le parser d'arguments pour v4"""
+    parser = argparse.ArgumentParser(description='DATA_BOT v4 - Enterprise Archiving Platform')
     
-    parser = argparse.ArgumentParser(description="Bot d'Archivage Internet Automatique")
-    parser.add_argument("--mode", choices=["explore", "process", "continuous"], 
-                       default="continuous", help="Mode d'exécution")
+    # Modes principaux
+    parser.add_argument('--mode', choices=[
+        'server', 'admin', 'worker', 'ml-categorize', 'cluster', 'k8s-deploy'
+    ], default='server', help='Mode de fonctionnement')
+    
+    # Arguments de base (hérités des versions précédentes)
     parser.add_argument("--urls", nargs="*", help="URLs de départ pour l'exploration")
     parser.add_argument("--log-level", default="INFO", help="Niveau de log")
     
+    # Configuration API
+    parser.add_argument("--enable-api", action="store_true", default=True, help="Activer l'API REST")
+    parser.add_argument("--api-host", default="localhost", help="Host du serveur API")
+    parser.add_argument("--api-port", type=int, default=8080, help="Port du serveur API")
+    
+    # Composants optionnels v4
+    parser.add_argument('--enable-opensearch', action='store_true',
+                       help='Utiliser OpenSearch au lieu d\'Elasticsearch')
+    parser.add_argument('--enable-graphql', action='store_true',
+                       help='Activer le serveur GraphQL')
+    parser.add_argument('--enable-admin', action='store_true',
+                       help='Activer l\'interface d\'administration')
+    
+    # Configuration planificateur
+    parser.add_argument("--enable-scheduler", action="store_true", default=True, help="Activer le planificateur")
+    
+    # Configuration mobile (hérité de v3)
+    parser.add_argument("--enable-mobile-interface", action="store_true", default=True, 
+                       help="Activer l'interface mobile")
+    
+    # Configuration vectorielle (hérité de v3)
+    parser.add_argument("--enable-vector-search", action="store_true", default=True,
+                       help="Activer la recherche vectorielle")
+    parser.add_argument("--vector-provider", choices=["chromadb", "qdrant"], default="chromadb",
+                       help="Fournisseur de base vectorielle")
+    parser.add_argument("--vector-config", help="Configuration du fournisseur vectoriel")
+    parser.add_argument("--vector-action", choices=["index", "search", "reindex"], 
+                       default="index", help="Action vectorielle")
+    
+    # Configuration Elasticsearch (hérité de v3)
+    parser.add_argument("--enable-elasticsearch", action="store_true", default=True,
+                       help="Activer Elasticsearch")
+    parser.add_argument("--elasticsearch-host", default="localhost", help="Host Elasticsearch")
+    parser.add_argument("--elasticsearch-port", type=int, default=9200, help="Port Elasticsearch")
+    parser.add_argument("--es-action", choices=["index", "search", "reindex"],
+                       default="index", help="Action Elasticsearch")
+    
+    # Configuration plugin navigateur (hérité de v3)
+    parser.add_argument("--enable-browser-plugin", action="store_true", default=True,
+                       help="Activer le plugin navigateur")
+    parser.add_argument("--plugin-port", type=int, default=8081, help="Port du serveur plugin")
+    
+    # Configuration distribuée (hérité de v3)
+    parser.add_argument("--enable-distributed", action="store_true", default=False,
+                       help="Activer le mode distribué")
+    parser.add_argument("--node-type", choices=["coordinator", "worker", "hybrid"], default="hybrid",
+                       help="Type de nœud")
+    parser.add_argument("--coordinator-host", default="localhost", help="Host du coordinateur")
+    parser.add_argument("--coordinator-port", type=int, default=8082, help="Port du coordinateur")
+    
+    # Configuration export
+    parser.add_argument("--export-format", choices=["json", "csv", "html", "xml", "zip"], 
+                       default="json", help="Format d'export")
+    parser.add_argument("--include-files", action="store_true", help="Inclure les fichiers dans l'export")
+    parser.add_argument("--filter-status", help="Filtrer par statut pour l'export")
+    parser.add_argument("--max-exports", type=int, default=10, help="Nombre max d'exports à conserver")
+    
+    # Configuration compression
+    parser.add_argument("--force-recompress", action="store_true", help="Forcer la recompression")
+    parser.add_argument("--auto-compress", action="store_true", default=True, help="Compression automatique")
+    
+    # Configuration doublons
+    parser.add_argument("--check-duplicates", action="store_true", default=True, help="Vérifier les doublons")
+    parser.add_argument("--remove-duplicates", action="store_true", help="Supprimer les doublons")
+    parser.add_argument("--duplicate-strategy", choices=["keep_first", "keep_best", "keep_latest"], 
+                       default="keep_latest", help="Stratégie de gestion des doublons")
+    
+    # Configuration planification
+    parser.add_argument("--schedule-action", choices=["list", "add", "remove"], help="Action de planification")
+    parser.add_argument("--task-name", help="Nom de la tâche à ajouter")
+    parser.add_argument("--task-type", choices=["archive", "export", "cleanup", "compression", "duplicate_check"], 
+                       help="Type de tâche")
+    parser.add_argument("--task-frequency", choices=["once", "hourly", "daily", "weekly", "monthly"], 
+                       default="daily", help="Fréquence de la tâche")
+    parser.add_argument("--task-id", help="ID de la tâche pour suppression")
+    
+    # Configuration ML
+    parser.add_argument('--ml-model', default='distilbert-base-uncased',
+                       help='Modèle ML pour la catégorisation')
+    parser.add_argument('--clustering-algorithm', choices=['kmeans', 'hdbscan', 'agglomerative'],
+                       default='hdbscan', help='Algorithme de clustering')
+    
+    # Configuration Kubernetes
+    parser.add_argument('--k8s-environment', choices=['development', 'staging', 'production'],
+                       help='Environnement Kubernetes')
+    parser.add_argument('--k8s-replicas', type=int, default=1,
+                       help='Nombre de répliques Kubernetes')
+    parser.add_argument('--k8s-namespace', default='databot',
+                       help='Namespace Kubernetes')
+    
+    # Configuration Docker
+    parser.add_argument('--docker-registry', help='Registre Docker pour les images')
+    parser.add_argument('--docker-tag', default='latest', help='Tag Docker')
+    
+    return parser
+
+async def main():
+    """Point d'entrée principal pour DATA_BOT v4"""
+    # Configuration du logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler('logs/databot_v4.log', mode='a')
+        ]
+    )
+    
+    # Parser les arguments
+    parser = create_argument_parser()
     args = parser.parse_args()
     
-    # Configuration du logging
-    Config.setup_logging(args.log_level)
+    # Créer l'instance DATA_BOT v4
+    bot = DataBotV4()
     
-    # Démarrer le bot
-    bot = ArchiveBot()
-    await bot.start(mode=args.mode, seed_urls=args.urls)
+    # Gestion des signaux
+    def signal_handler(signum, frame):
+        logger.info(f"Signal {signum} reçu, arrêt en cours...")
+        asyncio.create_task(bot.shutdown())
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        # Initialiser les composants
+        await bot._initialize_components(args)
+        
+        # Exécuter selon le mode
+        if args.mode == 'server':
+            logger.info("Démarrage en mode serveur complet...")
+            tasks = await bot.start_services(args)
+            await asyncio.gather(*tasks)
+            
+        elif args.mode == 'admin':
+            logger.info("Démarrage en mode administration...")
+            if bot.components.get('admin_interface'):
+                await bot.components['admin_interface'].start()
+            else:
+                logger.error("Interface d'administration non disponible")
+                
+        elif args.mode == 'worker':
+            logger.info("Démarrage en mode worker...")
+            await bot.run_continuous_processing()
+            
+        elif args.mode == 'ml-categorize':
+            logger.info("Démarrage de la catégorisation ML...")
+            await bot.run_ml_categorization(args)
+            
+        elif args.mode == 'cluster':
+            logger.info("Démarrage du clustering...")
+            await bot.run_result_clustering(args)
+            
+        elif args.mode == 'k8s-deploy':
+            logger.info("Démarrage du déploiement Kubernetes...")
+            await bot.deploy_to_kubernetes(args)
+        
+    except KeyboardInterrupt:
+        logger.info("Arrêt demandé par l'utilisateur")
+    except Exception as e:
+        logger.error(f"Erreur fatale: {e}")
+        raise
+    finally:
+        await bot.shutdown()
 
 if __name__ == "__main__":
+    # Créer les répertoires nécessaires
+    for directory in ['logs', 'data', 'archive', 'screenshots', 'config']:
+        Path(directory).mkdir(exist_ok=True)
+    
+    # Exécuter l'application
     asyncio.run(main())
