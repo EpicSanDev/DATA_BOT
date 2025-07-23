@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DATA_BOT - Analytics Dashboard</title>
+    
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@2.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    
+    <!-- D3.js for advanced visualizations -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    
+    <!-- Vue.js for reactive interface -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    
+    <!-- Styling -->
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .dashboard-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .dashboard-header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        .dashboard-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        
+        .dashboard-subtitle {
+            text-align: center;
+            color: #666;
+            font-size: 1.1rem;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
+        }
+        
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .chart-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        
+        .chart-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 400px;
+            width: 100%;
+        }
+        
+        .network-graph {
+            width: 100%;
+            height: 500px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            background: #f9f9f9;
+        }
+        
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+            color: #666;
+        }
+        
+        .refresh-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: transform 0.3s ease;
+            margin: 10px;
+        }
+        
+        .refresh-btn:hover {
+            transform: scale(1.05);
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-success { background-color: #4CAF50; }
+        .status-warning { background-color: #FF9800; }
+        .status-error { background-color: #F44336; }
+        
+        .table-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background-color: #f5f5f5;
+            font-weight: 600;
+        }
+        
+        tr:hover {
+            background-color: #f9f9f9;
+        }
+        
+        @media (max-width: 768px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .dashboard-title {
+                font-size: 2rem;
+            }
+            
+            .chart-container {
+                height: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app" class="dashboard-container">
+        <!-- Header -->
+        <div class="dashboard-header">
+            <h1 class="dashboard-title">📊 Analytics Dashboard</h1>
+            <p class="dashboard-subtitle">Vue d'ensemble des données et performances en temps réel</p>
+            <div style="text-align: center; margin-top: 15px;">
+                <button @click="refreshData" class="refresh-btn">🔄 Actualiser</button>
+                <button @click="exportData" class="refresh-btn">📤 Exporter</button>
+            </div>
+        </div>
+
+        <!-- Statistics Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number" style="color: #4CAF50;">{{ stats.totalSites }}</div>
+                <div class="stat-label">Sites Archivés</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" style="color: #2196F3;">{{ stats.totalPages }}</div>
+                <div class="stat-label">Pages Indexées</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" style="color: #FF9800;">{{ formatFileSize(stats.totalSize) }}</div>
+                <div class="stat-label">Données Stockées</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" style="color: #9C27B0;">{{ stats.successRate }}%</div>
+                <div class="stat-label">Taux de Succès</div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="charts-grid">
+            <!-- Daily Activity Chart -->
+            <div class="chart-card">
+                <h3 class="chart-title">📈 Activité Quotidienne</h3>
+                <div class="chart-container">
+                    <canvas id="dailyActivityChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Domain Distribution -->
+            <div class="chart-card">
+                <h3 class="chart-title">🌐 Distribution par Domaine</h3>
+                <div class="chart-container">
+                    <canvas id="domainChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Status Distribution -->
+            <div class="chart-card">
+                <h3 class="chart-title">📊 Statut des Archives</h3>
+                <div class="chart-container">
+                    <canvas id="statusChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Performance Metrics -->
+            <div class="chart-card">
+                <h3 class="chart-title">⚡ Performances Système</h3>
+                <div class="chart-container">
+                    <canvas id="performanceChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Network Visualization -->
+        <div class="chart-card">
+            <h3 class="chart-title">🕸️ Graphe de Liens Inter-Sites</h3>
+            <div id="networkGraph" class="network-graph"></div>
+        </div>
+
+        <!-- Recent Activity Table -->
+        <div class="table-container">
+            <h3 class="chart-title">🔍 Activité Récente</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>URL</th>
+                        <th>Statut</th>
+                        <th>Taille</th>
+                        <th>Durée</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="activity in recentActivity" :key="activity.id">
+                        <td>{{ formatDate(activity.timestamp) }}</td>
+                        <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">
+                            {{ activity.url }}
+                        </td>
+                        <td>
+                            <span :class="'status-indicator status-' + activity.status"></span>
+                            {{ activity.status }}
+                        </td>
+                        <td>{{ formatFileSize(activity.size) }}</td>
+                        <td>{{ activity.duration }}ms</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    stats: {
+                        totalSites: 0,
+                        totalPages: 0,
+                        totalSize: 0,
+                        successRate: 0
+                    },
+                    charts: {},
+                    recentActivity: [],
+                    networkData: { nodes: [], links: [] },
+                    loading: false
+                }
+            },
+            mounted() {
+                this.initializeCharts();
+                this.loadData();
+                // Auto-refresh every 30 seconds
+                setInterval(() => this.loadData(), 30000);
+            },
+            methods: {
+                async loadData() {
+                    this.loading = true;
+                    try {
+                        // Load statistics
+                        const statsResponse = await fetch('/api/v4/analytics/stats');
+                        this.stats = await statsResponse.json();
+
+                        // Load recent activity
+                        const activityResponse = await fetch('/api/v4/analytics/recent');
+                        this.recentActivity = await activityResponse.json();
+
+                        // Update charts
+                        await this.updateCharts();
+                        
+                        // Update network graph
+                        await this.updateNetworkGraph();
+                    } catch (error) {
+                        console.error('Error loading data:', error);
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                async refreshData() {
+                    await this.loadData();
+                },
+
+                async exportData() {
+                    try {
+                        const response = await fetch('/api/v4/analytics/export');
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `databot_analytics_${new Date().toISOString().split('T')[0]}.json`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(url);
+                    } catch (error) {
+                        console.error('Error exporting data:', error);
+                    }
+                },
+
+                initializeCharts() {
+                    // Daily Activity Chart
+                    const dailyCtx = document.getElementById('dailyActivityChart').getContext('2d');
+                    this.charts.daily = new Chart(dailyCtx, {
+                        type: 'line',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                label: 'Sites Archivés',
+                                data: [],
+                                borderColor: '#4CAF50',
+                                backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                                tension: 0.4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                x: {
+                                    type: 'time',
+                                    time: {
+                                        unit: 'day'
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    // Domain Distribution
+                    const domainCtx = document.getElementById('domainChart').getContext('2d');
+                    this.charts.domain = new Chart(domainCtx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                data: [],
+                                backgroundColor: [
+                                    '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+                                    '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'
+                                ]
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false
+                        }
+                    });
+
+                    // Status Distribution
+                    const statusCtx = document.getElementById('statusChart').getContext('2d');
+                    this.charts.status = new Chart(statusCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: ['Succès', 'Erreur', 'En Cours', 'En Attente'],
+                            datasets: [{
+                                label: 'Nombre d\'archives',
+                                data: [],
+                                backgroundColor: [
+                                    '#4CAF50', '#F44336', '#FF9800', '#2196F3'
+                                ]
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false
+                        }
+                    });
+
+                    // Performance Chart
+                    const perfCtx = document.getElementById('performanceChart').getContext('2d');
+                    this.charts.performance = new Chart(perfCtx, {
+                        type: 'line',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                label: 'Temps de réponse (ms)',
+                                data: [],
+                                borderColor: '#FF9800',
+                                backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                                tension: 0.4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false
+                        }
+                    });
+                },
+
+                async updateCharts() {
+                    try {
+                        // Update daily activity
+                        const dailyResponse = await fetch('/api/v4/analytics/daily');
+                        const dailyData = await dailyResponse.json();
+                        this.charts.daily.data.labels = dailyData.labels;
+                        this.charts.daily.data.datasets[0].data = dailyData.data;
+                        this.charts.daily.update();
+
+                        // Update domain distribution
+                        const domainResponse = await fetch('/api/v4/analytics/domains');
+                        const domainData = await domainResponse.json();
+                        this.charts.domain.data.labels = domainData.labels;
+                        this.charts.domain.data.datasets[0].data = domainData.data;
+                        this.charts.domain.update();
+
+                        // Update status distribution
+                        const statusResponse = await fetch('/api/v4/analytics/status');
+                        const statusData = await statusResponse.json();
+                        this.charts.status.data.datasets[0].data = statusData.data;
+                        this.charts.status.update();
+
+                        // Update performance
+                        const perfResponse = await fetch('/api/v4/analytics/performance');
+                        const perfData = await perfResponse.json();
+                        this.charts.performance.data.labels = perfData.labels;
+                        this.charts.performance.data.datasets[0].data = perfData.data;
+                        this.charts.performance.update();
+                    } catch (error) {
+                        console.error('Error updating charts:', error);
+                    }
+                },
+
+                async updateNetworkGraph() {
+                    try {
+                        const response = await fetch('/api/v4/analytics/network');
+                        const networkData = await response.json();
+                        this.renderNetworkGraph(networkData);
+                    } catch (error) {
+                        console.error('Error loading network data:', error);
+                    }
+                },
+
+                renderNetworkGraph(data) {
+                    const container = d3.select('#networkGraph');
+                    container.selectAll('*').remove();
+
+                    const width = container.node().clientWidth;
+                    const height = 500;
+
+                    const svg = container.append('svg')
+                        .attr('width', width)
+                        .attr('height', height);
+
+                    const simulation = d3.forceSimulation(data.nodes)
+                        .force('link', d3.forceLink(data.links).id(d => d.id).distance(100))
+                        .force('charge', d3.forceManyBody().strength(-300))
+                        .force('center', d3.forceCenter(width / 2, height / 2));
+
+                    const link = svg.append('g')
+                        .selectAll('line')
+                        .data(data.links)
+                        .enter().append('line')
+                        .attr('stroke', '#999')
+                        .attr('stroke-opacity', 0.6)
+                        .attr('stroke-width', d => Math.sqrt(d.value));
+
+                    const node = svg.append('g')
+                        .selectAll('circle')
+                        .data(data.nodes)
+                        .enter().append('circle')
+                        .attr('r', d => Math.sqrt(d.value) * 3)
+                        .attr('fill', d => d.color || '#69b3a2')
+                        .call(d3.drag()
+                            .on('start', dragstarted)
+                            .on('drag', dragged)
+                            .on('end', dragended));
+
+                    node.append('title')
+                        .text(d => d.name);
+
+                    simulation.on('tick', () => {
+                        link
+                            .attr('x1', d => d.source.x)
+                            .attr('y1', d => d.source.y)
+                            .attr('x2', d => d.target.x)
+                            .attr('y2', d => d.target.y);
+
+                        node
+                            .attr('cx', d => d.x)
+                            .attr('cy', d => d.y);
+                    });
+
+                    function dragstarted(event, d) {
+                        if (!event.active) simulation.alphaTarget(0.3).restart();
+                        d.fx = d.x;
+                        d.fy = d.y;
+                    }
+
+                    function dragged(event, d) {
+                        d.fx = event.x;
+                        d.fy = event.y;
+                    }
+
+                    function dragended(event, d) {
+                        if (!event.active) simulation.alphaTarget(0);
+                        d.fx = null;
+                        d.fy = null;
+                    }
+                },
+
+                formatFileSize(bytes) {
+                    if (bytes === 0) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                },
+
+                formatDate(timestamp) {
+                    return new Date(timestamp).toLocaleString('fr-FR');
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

@@ -22,6 +22,7 @@ except ImportError:
 
 from src.api_server_v3 import APIServerV3
 from src.models import WebResource, ArchiveStatus, ContentType
+from src.analytics_api import create_analytics_router
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +85,24 @@ class APIServerV4(APIServerV3):
         self.result_clusterer = result_clusterer
         self.admin_interface = admin_interface
         
+        # Ajouter le router d'analytics
+        analytics_router = create_analytics_router(self.database_manager)
+        self.app.include_router(analytics_router)
+        
         # Reconfigurer l'app FastAPI pour v4
         self._setup_v4_routes()
+        
+        # Ajouter route pour le dashboard analytics
+        @self.app.get("/dashboard/analytics", response_class=HTMLResponse)
+        async def analytics_dashboard():
+            """Serve the analytics dashboard"""
+            try:
+                dashboard_path = Path(__file__).parent / "templates" / "dashboard_analytics.html"
+                with open(dashboard_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            except Exception as e:
+                logger.error(f"Error serving analytics dashboard: {e}")
+                return HTMLResponse("<h1>Dashboard not available</h1>", status_code=500)
     
     def _setup_v4_routes(self):
         """Configure les routes spécifiques à v4"""

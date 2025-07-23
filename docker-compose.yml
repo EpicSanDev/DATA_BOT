@@ -19,6 +19,7 @@ services:
       - POSTGRES_DB=databot_v4
       - POSTGRES_USER=databot
       - POSTGRES_PASSWORD=databot_password
+      - OLLAMA_HOST=ollama:11434
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -30,6 +31,7 @@ services:
       - postgres
       - elasticsearch
       - opensearch
+      - ollama
     restart: unless-stopped
     networks:
       - databot-network
@@ -134,6 +136,29 @@ services:
     networks:
       - databot-network
 
+  # Ollama AI service with GPU support
+  ollama:
+    image: ollama/ollama:latest
+    container_name: databot-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - databot-network
+    command: sh -c "ollama serve & sleep 10 && ollama pull llama2 && ollama pull mistral && wait"
+
   # Load balancer/reverse proxy
   nginx:
     image: nginx:alpine
@@ -146,6 +171,7 @@ services:
       - ./nginx/ssl:/etc/nginx/ssl
     depends_on:
       - databot-v4
+      - ollama
     restart: unless-stopped
     networks:
       - databot-network
@@ -158,6 +184,7 @@ volumes:
   qdrant-data:
   prometheus-data:
   grafana-data:
+  ollama-data:
 
 networks:
   databot-network:

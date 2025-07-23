@@ -3,18 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="{{ pwa_config.theme_color }}">
-    <title>{{ pwa_config.name }}</title>
+    <meta name="theme-color" content="#667eea">
+    <title>DATA_BOT Mobile Dashboard</title>
     
     <!-- PWA -->
     <link rel="manifest" href="/mobile/manifest.json">
     <link rel="icon" type="image/png" href="/mobile/icons/icon-192.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="{{ pwa_config.short_name }}">
+    <meta name="apple-mobile-web-app-title" content="DATA_BOT">
     
-    <!-- CSS Mobile -->
+    <!-- CSS Mobile Enhanced -->
     <link rel="stylesheet" href="/mobile/app.css">
+    
+    <!-- Chart.js for mobile visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <!-- Vue.js pour l'interface réactive -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
@@ -24,16 +27,19 @@
 </head>
 <body>
     <div id="app">
-        <!-- Header mobile -->
+        <!-- Header mobile enhanced -->
         <header class="mobile-header">
             <div class="header-content">
-                <h1>{{ pwa_config.short_name }}</h1>
+                <h1>📊 DATA_BOT</h1>
                 <div class="header-actions">
                     <button @click="showSearchModal = true" class="btn-icon">
                         <i data-lucide="search"></i>
                     </button>
-                    <button @click="showAddModal = true" class="btn-icon">
-                        <i data-lucide="plus"></i>
+                    <button @click="showAnalyticsModal = true" class="btn-icon">
+                        <i data-lucide="bar-chart-3"></i>
+                    </button>
+                    <button @click="refreshData" class="btn-icon">
+                        <i data-lucide="refresh-cw"></i>
                     </button>
                     <button @click="showMenuModal = true" class="btn-icon">
                         <i data-lucide="menu"></i>
@@ -42,12 +48,668 @@
             </div>
         </header>
 
+        <!-- État de connexion -->
+        <div v-if="!isOnline" class="offline-banner">
+            <i data-lucide="wifi-off"></i>
+            Mode hors ligne - Les données seront synchronisées à la reconnexion
+        </div>
+
+        <!-- Navigation tabs -->
+        <div class="mobile-nav-tabs">
+            <button 
+                class="nav-tab" 
+                :class="{ active: activeTab === 'dashboard' }"
+                @click="activeTab = 'dashboard'"
+            >
+                📊 Dashboard
+            </button>
+            <button 
+                class="nav-tab" 
+                :class="{ active: activeTab === 'activity' }"
+                @click="activeTab = 'activity'"
+            >
+                📝 Activité
+            </button>
+            <button 
+                class="nav-tab" 
+                :class="{ active: activeTab === 'stats' }"
+                @click="activeTab = 'stats'"
+            >
+                📈 Stats
+            </button>
+        </div>
+
         <!-- Contenu principal -->
         <main class="mobile-main">
-            <!-- État de connexion -->
-            <div v-if="!isOnline" class="offline-banner">
-                <i data-lucide="wifi-off"></i>
-                Mode hors ligne - Les données seront synchronisées à la reconnexion
+            <!-- Dashboard Tab -->
+            <div v-if="activeTab === 'dashboard'">
+                <!-- Statistics cards -->
+                <div class="mobile-stats">
+                    <div class="stat-card-mobile">
+                        <div class="stat-number-mobile">{{ stats.totalSites }}</div>
+                        <div class="stat-label-mobile">Sites</div>
+                        <svg class="progress-ring">
+                            <circle class="background" cx="30" cy="30" r="26"></circle>
+                            <circle class="progress" cx="30" cy="30" r="26" 
+                                :stroke-dasharray="circumference"
+                                :stroke-dashoffset="circumference - (stats.totalSites / 1000 * circumference)">
+                            </circle>
+                        </svg>
+                    </div>
+                    
+                    <div class="stat-card-mobile">
+                        <div class="stat-number-mobile">{{ stats.totalPages }}</div>
+                        <div class="stat-label-mobile">Pages</div>
+                        <svg class="progress-ring">
+                            <circle class="background" cx="30" cy="30" r="26"></circle>
+                            <circle class="progress" cx="30" cy="30" r="26" 
+                                :stroke-dasharray="circumference"
+                                :stroke-dashoffset="circumference - (stats.totalPages / 5000 * circumference)">
+                            </circle>
+                        </svg>
+                    </div>
+                    
+                    <div class="stat-card-mobile">
+                        <div class="stat-number-mobile">{{ formatFileSize(stats.totalSize) }}</div>
+                        <div class="stat-label-mobile">Données</div>
+                    </div>
+                    
+                    <div class="stat-card-mobile">
+                        <div class="stat-number-mobile">{{ stats.successRate }}%</div>
+                        <div class="stat-label-mobile">Succès</div>
+                        <svg class="progress-ring">
+                            <circle class="background" cx="30" cy="30" r="26"></circle>
+                            <circle class="progress" cx="30" cy="30" r="26" 
+                                :stroke-dasharray="circumference"
+                                :stroke-dashoffset="circumference - (stats.successRate / 100 * circumference)">
+                            </circle>
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Daily activity chart -->
+                <div class="mobile-chart-container">
+                    <h3 class="mobile-chart-title">📈 Activité des 7 derniers jours</h3>
+                    <canvas id="dailyChart" class="mobile-chart"></canvas>
+                </div>
+
+                <!-- Domain distribution -->
+                <div class="mobile-chart-container">
+                    <h3 class="mobile-chart-title">🌐 Top Domaines</h3>
+                    <canvas id="domainChart" class="mobile-chart"></canvas>
+                </div>
+            </div>
+
+            <!-- Activity Tab -->
+            <div v-if="activeTab === 'activity'" class="mobile-activity">
+                <div class="activity-header">
+                    🔍 Activité Récente
+                    <span v-if="loading" class="loading-spinner"></span>
+                </div>
+                <div class="activity-list">
+                    <div v-for="activity in recentActivity" :key="activity.id" class="activity-item">
+                        <div>
+                            <div class="activity-url">{{ activity.url }}</div>
+                            <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                                {{ formatDate(activity.timestamp) }}
+                            </div>
+                        </div>
+                        <div class="activity-status" :class="'status-' + activity.status">
+                            {{ getStatusText(activity.status) }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Tab -->
+            <div v-if="activeTab === 'stats'">
+                <!-- Status distribution -->
+                <div class="mobile-chart-container">
+                    <h3 class="mobile-chart-title">📊 Distribution des Statuts</h3>
+                    <canvas id="statusChart" class="mobile-chart"></canvas>
+                </div>
+
+                <!-- Performance chart -->
+                <div class="mobile-chart-container">
+                    <h3 class="mobile-chart-title">⚡ Performance (24h)</h3>
+                    <canvas id="performanceChart" class="mobile-chart"></canvas>
+                </div>
+            </div>
+        </main>
+
+        <!-- Search Modal -->
+        <div v-if="showSearchModal" class="modal-overlay" @click="showSearchModal = false">
+            <div class="modal-content" @click.stop>
+                <h3>🔍 Recherche</h3>
+                <input 
+                    v-model="searchQuery" 
+                    placeholder="Rechercher dans l'archive..."
+                    class="search-input"
+                    @keyup.enter="performSearch"
+                >
+                <div class="modal-actions">
+                    <button @click="performSearch" class="btn-primary">Rechercher</button>
+                    <button @click="showSearchModal = false" class="btn-secondary">Annuler</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analytics Modal -->
+        <div v-if="showAnalyticsModal" class="modal-overlay" @click="showAnalyticsModal = false">
+            <div class="modal-content large" @click.stop>
+                <h3>📊 Analytics Avancées</h3>
+                <div class="analytics-grid">
+                    <div class="analytics-item">
+                        <strong>Taux de succès journalier</strong>
+                        <div class="metric-value">{{ dailySuccessRate }}%</div>
+                    </div>
+                    <div class="analytics-item">
+                        <strong>Temps moyen de traitement</strong>
+                        <div class="metric-value">{{ avgProcessingTime }}ms</div>
+                    </div>
+                    <div class="analytics-item">
+                        <strong>Erreurs récentes</strong>
+                        <div class="metric-value">{{ recentErrors }}</div>
+                    </div>
+                    <div class="analytics-item">
+                        <strong>Domaines uniques</strong>
+                        <div class="metric-value">{{ uniqueDomains }}</div>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button @click="exportMobileData" class="btn-primary">📤 Exporter</button>
+                    <button @click="showAnalyticsModal = false" class="btn-secondary">Fermer</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Menu Modal -->
+        <div v-if="showMenuModal" class="modal-overlay" @click="showMenuModal = false">
+            <div class="modal-content" @click.stop>
+                <h3>⚙️ Menu</h3>
+                <div class="menu-items">
+                    <button @click="goToFullDashboard" class="menu-item">
+                        <i data-lucide="monitor"></i>
+                        Dashboard Complet
+                    </button>
+                    <button @click="toggleTheme" class="menu-item">
+                        <i data-lucide="moon"></i>
+                        Mode Sombre
+                    </button>
+                    <button @click="showSettings" class="menu-item">
+                        <i data-lucide="settings"></i>
+                        Paramètres
+                    </button>
+                    <button @click="showAbout" class="menu-item">
+                        <i data-lucide="info"></i>
+                        À propos
+                    </button>
+                </div>
+                <button @click="showMenuModal = false" class="btn-secondary full-width">Fermer</button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        /* Modal styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: var(--spacing-m);
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: var(--radius);
+            padding: var(--spacing-l);
+            max-width: 400px;
+            width: 100%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-content.large {
+            max-width: 500px;
+        }
+
+        .modal-content h3 {
+            margin-bottom: var(--spacing-m);
+            color: var(--text-primary);
+        }
+
+        .search-input {
+            width: 100%;
+            padding: var(--spacing-m);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            margin-bottom: var(--spacing-m);
+            font-size: 1rem;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: var(--spacing-s);
+            justify-content: flex-end;
+        }
+
+        .btn-primary, .btn-secondary {
+            padding: var(--spacing-s) var(--spacing-m);
+            border: none;
+            border-radius: var(--radius);
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .full-width {
+            width: 100%;
+        }
+
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: var(--spacing-m);
+            margin-bottom: var(--spacing-m);
+        }
+
+        .analytics-item {
+            text-align: center;
+            padding: var(--spacing-m);
+            background: var(--background-color);
+            border-radius: var(--radius);
+        }
+
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-top: var(--spacing-s);
+        }
+
+        .menu-items {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-s);
+            margin-bottom: var(--spacing-m);
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-s);
+            padding: var(--spacing-m);
+            background: var(--background-color);
+            border: none;
+            border-radius: var(--radius);
+            cursor: pointer;
+            width: 100%;
+            text-align: left;
+        }
+
+        .menu-item:hover {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        @media (max-width: 480px) {
+            .analytics-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .modal-content {
+                margin: var(--spacing-s);
+                max-width: none;
+            }
+        }
+    </style>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    isOnline: navigator.onLine,
+                    activeTab: 'dashboard',
+                    showSearchModal: false,
+                    showAnalyticsModal: false,
+                    showMenuModal: false,
+                    searchQuery: '',
+                    loading: false,
+                    circumference: 2 * Math.PI * 26, // For progress rings
+                    stats: {
+                        totalSites: 0,
+                        totalPages: 0,
+                        totalSize: 0,
+                        successRate: 0
+                    },
+                    recentActivity: [],
+                    charts: {},
+                    dailySuccessRate: 0,
+                    avgProcessingTime: 0,
+                    recentErrors: 0,
+                    uniqueDomains: 0
+                }
+            },
+            mounted() {
+                this.initializeCharts();
+                this.loadData();
+                this.setupEventListeners();
+                // Auto-refresh every 30 seconds
+                setInterval(() => this.loadData(), 30000);
+            },
+            methods: {
+                async loadData() {
+                    this.loading = true;
+                    try {
+                        // Load basic stats
+                        const statsResponse = await fetch('/api/v4/analytics/stats');
+                        this.stats = await statsResponse.json();
+
+                        // Load recent activity
+                        const activityResponse = await fetch('/api/v4/analytics/recent?limit=20');
+                        this.recentActivity = await activityResponse.json();
+
+                        // Update charts
+                        await this.updateCharts();
+                        
+                        // Update analytics metrics
+                        this.updateAnalyticsMetrics();
+                    } catch (error) {
+                        console.error('Error loading data:', error);
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                async refreshData() {
+                    await this.loadData();
+                },
+
+                initializeCharts() {
+                    // Daily activity chart (line)
+                    const dailyCtx = document.getElementById('dailyChart').getContext('2d');
+                    this.charts.daily = new Chart(dailyCtx, {
+                        type: 'line',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                label: 'Sites archivés',
+                                data: [],
+                                borderColor: '#667eea',
+                                backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                                tension: 0.4,
+                                fill: true
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false }
+                            },
+                            scales: {
+                                x: { display: false },
+                                y: { display: false }
+                            }
+                        }
+                    });
+
+                    // Domain distribution (doughnut)
+                    const domainCtx = document.getElementById('domainChart').getContext('2d');
+                    this.charts.domain = new Chart(domainCtx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                data: [],
+                                backgroundColor: [
+                                    '#667eea', '#764ba2', '#4CAF50', '#FF9800',
+                                    '#F44336', '#2196F3', '#9C27B0', '#607D8B'
+                                ]
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { 
+                                    position: 'bottom',
+                                    labels: { 
+                                        boxWidth: 12,
+                                        font: { size: 10 }
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    // Status distribution (bar)
+                    const statusCtx = document.getElementById('statusChart').getContext('2d');
+                    this.charts.status = new Chart(statusCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: ['Succès', 'Erreur', 'En Cours', 'En Attente'],
+                            datasets: [{
+                                data: [],
+                                backgroundColor: ['#4CAF50', '#F44336', '#FF9800', '#2196F3']
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: {
+                                x: { display: false },
+                                y: { display: false }
+                            }
+                        }
+                    });
+
+                    // Performance chart
+                    const perfCtx = document.getElementById('performanceChart').getContext('2d');
+                    this.charts.performance = new Chart(perfCtx, {
+                        type: 'line',
+                        data: {
+                            labels: [],
+                            datasets: [{
+                                label: 'Temps de réponse',
+                                data: [],
+                                borderColor: '#FF9800',
+                                backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                                tension: 0.4,
+                                fill: true
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: {
+                                x: { display: false },
+                                y: { display: false }
+                            }
+                        }
+                    });
+                },
+
+                async updateCharts() {
+                    try {
+                        // Update daily activity (last 7 days)
+                        const dailyResponse = await fetch('/api/v4/analytics/daily?days=7');
+                        const dailyData = await dailyResponse.json();
+                        this.charts.daily.data.labels = dailyData.labels.slice(-7);
+                        this.charts.daily.data.datasets[0].data = dailyData.data.slice(-7);
+                        this.charts.daily.update();
+
+                        // Update domain distribution (top 5)
+                        const domainResponse = await fetch('/api/v4/analytics/domains?limit=5');
+                        const domainData = await domainResponse.json();
+                        this.charts.domain.data.labels = domainData.labels;
+                        this.charts.domain.data.datasets[0].data = domainData.data;
+                        this.charts.domain.update();
+
+                        // Update status distribution
+                        const statusResponse = await fetch('/api/v4/analytics/status');
+                        const statusData = await statusResponse.json();
+                        this.charts.status.data.datasets[0].data = statusData.data;
+                        this.charts.status.update();
+
+                        // Update performance
+                        const perfResponse = await fetch('/api/v4/analytics/performance?hours=24');
+                        const perfData = await perfResponse.json();
+                        this.charts.performance.data.labels = perfData.labels.slice(-12); // Last 12 hours
+                        this.charts.performance.data.datasets[0].data = perfData.data.slice(-12);
+                        this.charts.performance.update();
+                    } catch (error) {
+                        console.error('Error updating charts:', error);
+                    }
+                },
+
+                updateAnalyticsMetrics() {
+                    // Calculate additional metrics from existing data
+                    const successful = this.recentActivity.filter(a => a.status === 'success').length;
+                    this.dailySuccessRate = Math.round((successful / this.recentActivity.length) * 100) || 0;
+                    
+                    this.avgProcessingTime = Math.round(
+                        this.recentActivity.reduce((sum, a) => sum + (a.duration || 0), 0) / 
+                        this.recentActivity.length
+                    ) || 0;
+                    
+                    this.recentErrors = this.recentActivity.filter(a => a.status === 'error').length;
+                    
+                    const domains = new Set(this.recentActivity.map(a => {
+                        try {
+                            return new URL(a.url).hostname;
+                        } catch {
+                            return 'unknown';
+                        }
+                    }));
+                    this.uniqueDomains = domains.size;
+                },
+
+                async performSearch() {
+                    if (!this.searchQuery.trim()) return;
+                    
+                    try {
+                        const response = await fetch('/api/v4/search', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ query: this.searchQuery })
+                        });
+                        const results = await response.json();
+                        
+                        // Handle search results (could open a results modal)
+                        console.log('Search results:', results);
+                        this.showSearchModal = false;
+                    } catch (error) {
+                        console.error('Search error:', error);
+                    }
+                },
+
+                async exportMobileData() {
+                    try {
+                        const response = await fetch('/api/v4/analytics/export');
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `databot_mobile_${new Date().toISOString().split('T')[0]}.json`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(url);
+                        this.showAnalyticsModal = false;
+                    } catch (error) {
+                        console.error('Export error:', error);
+                    }
+                },
+
+                goToFullDashboard() {
+                    window.location.href = '/dashboard/analytics';
+                },
+
+                toggleTheme() {
+                    document.body.classList.toggle('dark-theme');
+                    this.showMenuModal = false;
+                },
+
+                showSettings() {
+                    // Implement settings modal
+                    alert('Paramètres à venir...');
+                    this.showMenuModal = false;
+                },
+
+                showAbout() {
+                    alert('DATA_BOT v4 - Plateforme d\'archivage intelligent');
+                    this.showMenuModal = false;
+                },
+
+                setupEventListeners() {
+                    // Online/offline detection
+                    window.addEventListener('online', () => {
+                        this.isOnline = true;
+                        this.loadData(); // Sync when back online
+                    });
+                    
+                    window.addEventListener('offline', () => {
+                        this.isOnline = false;
+                    });
+
+                    // Initialize Lucide icons
+                    if (typeof lucide !== 'undefined') {
+                        lucide.createIcons();
+                    }
+                },
+
+                formatFileSize(bytes) {
+                    if (bytes === 0) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB'];
+                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+                },
+
+                formatDate(timestamp) {
+                    return new Date(timestamp).toLocaleString('fr-FR', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                },
+
+                getStatusText(status) {
+                    const statusMap = {
+                        'success': 'OK',
+                        'error': 'Erreur',
+                        'warning': 'En cours',
+                        'pending': 'Attente'
+                    };
+                    return statusMap[status] || status;
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
             </div>
 
             <!-- Statistiques rapides -->
