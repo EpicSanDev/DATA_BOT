@@ -25,10 +25,10 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from src.core.config import Config
 from src.core.models import WebResource, ArchiveStatus
 from src.core.enhanced_ai_client import EnhancedAIClient
-from src.database.database.database import DatabaseManager
+from src.database.database import DatabaseManager
 from src.api.api_server import APIServerV4
 from src.api.admin_interface import AdminInterface
-from src.database.database.opensearch_manager import OpenSearchManager
+from src.database.opensearch_manager import OpenSearchManager
 from src.ml.ml_categorizer import MLCategorizer
 from src.core.result_clusterer import ResultClusterer
 from src.api.graphql_server import GraphQLServer

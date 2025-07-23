@@ -20,11 +20,27 @@ try:
 except ImportError:
     FASTAPI_AVAILABLE = False
 
-from src.api_server_v3 import APIServerV3
 from src.core.models import WebResource, ArchiveStatus, ContentType
 from src.api.analytics_api import create_analytics_router
 
 logger = logging.getLogger(__name__)
+
+# Base API Server class to replace the removed APIServerV3
+class BaseAPIServer:
+    """Base API Server class"""
+    
+    def __init__(self, database_manager, port: int = 8080):
+        self.database_manager = database_manager
+        self.port = port
+        self.app = None
+        
+    async def start(self):
+        """Start the API server"""
+        pass
+        
+    async def stop(self):
+        """Stop the API server"""
+        pass
 
 # Modèles Pydantic pour l'API v4
 class SearchRequestV4(BaseModel):
@@ -57,7 +73,7 @@ class SystemConfigUpdate(BaseModel):
     component: str  # "opensearch", "ml", "clustering"
     settings: Dict[str, Any]
 
-class APIServerV4(APIServerV3):
+class APIServerV4(BaseAPIServer):
     """Serveur API v4 avec fonctionnalités enterprise"""
     
     def __init__(self, database_manager, opensearch_manager=None,
