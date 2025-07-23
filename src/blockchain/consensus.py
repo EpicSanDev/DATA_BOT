@@ -3,18 +3,22 @@ Proof of Archive (PoA) Consensus Mechanism
 
 Implements the specialized consensus algorithm that combines:
 - Proof of Storage: nodes prove they store data
-- Proof of Bandwidth: demonstration of content serving capability  
+- Proof of Bandwidth: demonstration of content serving capability
 - Proof of Longevity: bonus for long-term storage
+
+SÉCURITÉ: Utilise des méthodes cryptographiquement sûres pour la génération aléatoire
 """
 
 import json
 import hashlib
 import time
-import random
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass, asdict
 from enum import Enum
+
+# Import du gestionnaire cryptographique sécurisé
+from .security import crypto_manager
 
 class ProofType(Enum):
     """Types of proofs in PoA consensus"""
@@ -108,11 +112,16 @@ class ProofOfArchive:
         self.active_challenges: Dict[str, Dict[str, Any]] = {}
     
     def generate_storage_challenge(self, node_id: str, archive_id: str) -> str:
-        """Generate storage challenge for a node"""
-        challenge = hashlib.sha256(
-            f"{node_id}{archive_id}{time.time()}{random.random()}".encode()
-        ).hexdigest()[:self.CHALLENGE_LENGTH]
+        """
+        Generate storage challenge for a node using cryptographically secure methods
         
+        CORRECTION CRITIQUE: Remplace random.random() par crypto_manager.generate_secure_challenge()
+        """
+        # Utilise le gestionnaire cryptographique sécurisé
+        challenge = crypto_manager.generate_secure_challenge(node_id, archive_id)
+        
+        # Le challenge est déjà stocké dans le crypto_manager, pas besoin de dupliquer
+        # Mais on maintient la compatibilité avec l'ancienne interface
         self.active_challenges[f"{node_id}_{archive_id}"] = {
             "challenge": challenge,
             "timestamp": time.time(),
@@ -332,19 +341,25 @@ class ProofOfArchive:
         return sorted_nodes[:count]
     
     def select_block_validator(self) -> str:
-        """Select validator for next block using weighted random selection"""
+        """
+        Select validator for next block using weighted random selection
+        
+        CORRECTION CRITIQUE: Utilise crypto_manager.generate_secure_random_float()
+        au lieu de random.random() pour la sélection cryptographiquement sûre
+        """
         top_validators = self.get_top_validators(20)  # Consider top 20
         
         if not top_validators:
             raise ValueError("No validators available")
         
-        # Use weighted random selection
+        # Use weighted random selection with cryptographically secure randomness
         total_score = sum(score for _, score in top_validators)
         if total_score == 0:
-            # Fallback to random selection
+            # Fallback to first validator
             return top_validators[0][0]
         
-        rand_val = random.random() * total_score
+        # Utilise le générateur cryptographiquement sûr
+        rand_val = crypto_manager.generate_secure_random_float() * total_score
         cumulative = 0.0
         
         for node_id, score in top_validators:
@@ -356,20 +371,147 @@ class ProofOfArchive:
         return top_validators[0][0]
     
     def validate_block_creation_right(self, node_id: str, block_hash: str) -> bool:
-        """Validate that a node has the right to create a block"""
-        # Check if node has sufficient PoA score
-        score = self.calculate_total_score(node_id)
+        """
+        Validate that a node has the right to create a block with enhanced security
         
-        # Minimum score threshold (e.g., 0.1)
-        if score < 0.1:
+        CORRECTION CRITIQUE: Renforce la validation d'autorisation avec des seuils stricts
+        et rotation des validateurs
+        """
+        # Validation de base du node_id
+        if not node_id or not isinstance(node_id, str):
             return False
         
-        # Additional validation could include:
-        # - Checking if it's the node's turn in rotation
-        # - Verifying stake requirements
-        # - Checking reputation/slashing conditions
+        # Calcule le score PoA actuel
+        score = self.calculate_total_score(node_id)
+        
+        # Seuil minimum renforcé (augmenté de 0.1 à 0.3)
+        MINIMUM_SCORE_THRESHOLD = 0.3
+        if score < MINIMUM_SCORE_THRESHOLD:
+            return False
+        
+        # Validation de la rotation des validateurs
+        if not self._validate_validator_rotation(node_id):
+            return False
+        
+        # Validation des exigences de stake minimum
+        if not self._validate_minimum_stake_requirements(node_id):
+            return False
+        
+        # Validation de la réputation et conditions de slashing
+        if not self._validate_reputation_and_slashing(node_id):
+            return False
+        
+        # Validation du timing (évite la création de blocs trop fréquente)
+        if not self._validate_block_timing(node_id):
+            return False
+        
+        # Validation de l'historique récent des validations
+        if not self._validate_recent_validation_history(node_id):
+            return False
         
         return True
+    
+    def _validate_validator_rotation(self, node_id: str) -> bool:
+        """Valide la rotation des validateurs pour éviter la centralisation"""
+        # Vérifie que le même validateur ne crée pas consécutivement trop de blocs
+        recent_validators = getattr(self, '_recent_validators', [])
+        
+        # Limite : maximum 2 blocs consécutifs par validateur
+        if len(recent_validators) >= 2 and all(v == node_id for v in recent_validators[-2:]):
+            return False
+        
+        return True
+    
+    def _validate_minimum_stake_requirements(self, node_id: str) -> bool:
+        """Valide les exigences minimales de stake pour la validation"""
+        # Dans un système réel, ceci vérifierait le stake actuel du validateur
+        # Pour maintenant, on simule avec le score de stockage
+        storage_score = self.calculate_storage_score(node_id)
+        
+        # Exigence minimale de stake (équivalent à un score de stockage > 0.5)
+        MINIMUM_STAKE_SCORE = 0.5
+        return storage_score >= MINIMUM_STAKE_SCORE
+    
+    def _validate_reputation_and_slashing(self, node_id: str) -> bool:
+        """Valide la réputation et vérifie les conditions de slashing"""
+        # Vérifie qu'il n'y a pas de conditions de slashing actives
+        slashing_conditions = getattr(self, '_slashing_registry', {})
+        if node_id in slashing_conditions:
+            return False
+        
+        # Vérifie la réputation basée sur l'historique des preuves
+        bandwidth_score = self.calculate_bandwidth_score(node_id)
+        longevity_score = self.calculate_longevity_score(node_id)
+        
+        # Score de réputation minimum requis
+        MINIMUM_REPUTATION = 0.6
+        reputation_score = (bandwidth_score + longevity_score) / 2
+        
+        return reputation_score >= MINIMUM_REPUTATION
+    
+    def _validate_block_timing(self, node_id: str) -> bool:
+        """Valide le timing pour éviter la création de blocs trop fréquente"""
+        current_time = time.time()
+        last_block_times = getattr(self, '_last_block_times', {})
+        
+        if node_id in last_block_times:
+            time_since_last = current_time - last_block_times[node_id]
+            # Minimum 60 secondes entre les blocs du même validateur
+            MIN_TIME_BETWEEN_BLOCKS = 60
+            if time_since_last < MIN_TIME_BETWEEN_BLOCKS:
+                return False
+        
+        return True
+    
+    def _validate_recent_validation_history(self, node_id: str) -> bool:
+        """Valide l'historique récent des validations pour détecter des patterns suspects"""
+        # Vérifie que le nœud a récemment fourni des preuves valides
+        current_time = time.time()
+        recent_window = 3600  # 1 heure
+        
+        # Vérifie les preuves de stockage récentes
+        if node_id in self.storage_proofs:
+            recent_storage_proofs = [
+                proof for proof in self.storage_proofs[node_id]
+                if current_time - proof.timestamp <= recent_window
+            ]
+            if len(recent_storage_proofs) == 0:
+                return False
+        
+        return True
+    
+    def update_validator_state(self, node_id: str, block_created: bool = True):
+        """Met à jour l'état du validateur après création de bloc"""
+        current_time = time.time()
+        
+        # Met à jour l'historique des validateurs récents
+        if not hasattr(self, '_recent_validators'):
+            self._recent_validators = []
+        
+        if block_created:
+            self._recent_validators.append(node_id)
+            # Garde seulement les 10 derniers validateurs
+            self._recent_validators = self._recent_validators[-10:]
+            
+            # Met à jour le temps du dernier bloc
+            if not hasattr(self, '_last_block_times'):
+                self._last_block_times = {}
+            self._last_block_times[node_id] = current_time
+    
+    def add_slashing_condition(self, node_id: str, reason: str):
+        """Ajoute une condition de slashing pour un nœud"""
+        if not hasattr(self, '_slashing_registry'):
+            self._slashing_registry = {}
+        
+        self._slashing_registry[node_id] = {
+            'reason': reason,
+            'timestamp': time.time()
+        }
+    
+    def remove_slashing_condition(self, node_id: str):
+        """Retire une condition de slashing pour un nœud"""
+        if hasattr(self, '_slashing_registry') and node_id in self._slashing_registry:
+            del self._slashing_registry[node_id]
     
     def get_consensus_stats(self) -> Dict[str, Any]:
         """Get consensus statistics"""

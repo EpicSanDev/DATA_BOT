@@ -1,0 +1,546 @@
+# ==============================================================================
+# PIPELINE CI/CD GITHUB ACTIONS - DATA_BOT v4 KUBERNETES
+# ==============================================================================
+
+name: 🚀 Deploy DATA_BOT v4 to Kubernetes
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'src/**'
+      - 'k8s/**'
+      - 'docker/**'
+      - 'requirements*.txt'
+      - '.github/workflows/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'k8s/**'
+      - 'docker/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      force_deploy:
+        description: 'Force deployment (skip tests)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: databot
+  DOCKER_BUILDKIT: 1
+  BUILDKIT_PROGRESS: plain
+
+jobs:
+  # ==============================================================================
+  # ANALYSE ET TESTS
+  # ==============================================================================
+  
+  analyze:
+    name: 🔍 Code Analysis & Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    
+    steps:
+    - name: 📁 Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: 🐍 Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: 📦 Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements_v4.txt
+        pip install safety bandit semgrep pylint black flake8
+    
+    - name: 🔒 Security scan with Bandit
+      run: |
+        bandit -r src/ -f json -o bandit-report.json || true
+        bandit -r src/ -f txt
+    
+    - name: 🛡️ Vulnerability scan with Safety
+      run: |
+        safety check --json --output safety-report.json || true
+        safety check
+    
+    - name: 📊 Code quality with Pylint
+      run: |
+        pylint src/ --output-format=json:pylint-report.json,text || true
+    
+    - name: 🎯 Semgrep security scan
+      run: |
+        semgrep --config=auto src/ --json --output=semgrep-report.json || true
+        semgrep --config=auto src/
+    
+    - name: 📤 Upload security reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: security-reports
+        path: |
+          bandit-report.json
+          safety-report.json
+          pylint-report.json
+          semgrep-report.json
+    
+    - name: 🔍 Initialize CodeQL
+      uses: github/codeql-action/init@v2
+      with:
+        languages: python
+        queries: security-and-quality
+    
+    - name: 🔎 Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+
+  # ==============================================================================
+  # TESTS UNITAIRES ET D'INTÉGRATION
+  # ==============================================================================
+  
+  test:
+    name: 🧪 Run Tests
+    runs-on: ubuntu-latest
+    needs: analyze
+    if: ${{ !inputs.force_deploy }}
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_USER: test_user
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+    
+    steps:
+    - name: 📁 Checkout code
+      uses: actions/checkout@v4
+    
+    - name: 🐍 Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: 📦 Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements_v4.txt
+        pip install pytest pytest-cov pytest-asyncio pytest-mock
+    
+    - name: 🧪 Run unit tests
+      env:
+        POSTGRES_HOST: localhost
+        POSTGRES_USER: test_user
+        POSTGRES_PASSWORD: test_password
+        POSTGRES_DB: test_db
+        REDIS_HOST: localhost
+        ENVIRONMENT: testing
+      run: |
+        pytest tests/ -v --cov=src --cov-report=xml --cov-report=html
+    
+    - name: 📊 Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+    
+    - name: 📤 Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results
+        path: |
+          htmlcov/
+          coverage.xml
+
+  # ==============================================================================
+  # BUILD ET SCAN DES IMAGES DOCKER
+  # ==============================================================================
+  
+  build:
+    name: 🐳 Build & Scan Docker Images
+    runs-on: ubuntu-latest
+    needs: [analyze]
+    if: ${{ github.event_name != 'pull_request' || inputs.force_deploy }}
+    
+    strategy:
+      matrix:
+        service: [api, admin, blockchain, nginx]
+    
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    
+    steps:
+    - name: 📁 Checkout code
+      uses: actions/checkout@v4
+    
+    - name: 🔧 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: 🔐 Login to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: 📝 Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}-${{ matrix.service }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+    
+    - name: 🏗️ Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: docker/Dockerfile.${{ matrix.service }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+    
+    - name: 🔍 Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}-${{ matrix.service }}:${{ github.sha }}
+        format: 'sarif'
+        output: 'trivy-results-${{ matrix.service }}.sarif'
+    
+    - name: 📤 Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results-${{ matrix.service }}.sarif'
+
+  # ==============================================================================
+  # VALIDATION KUBERNETES
+  # ==============================================================================
+  
+  validate-k8s:
+    name: ✅ Validate Kubernetes Manifests
+    runs-on: ubuntu-latest
+    needs: analyze
+    
+    steps:
+    - name: 📁 Checkout code
+      uses: actions/checkout@v4
+    
+    - name: 🔧 Setup Kubernetes tools
+      run: |
+        # Install kubectl
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+        
+        # Install kustomize
+        curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+        sudo mv kustomize /usr/local/bin/
+        
+        # Install kubeval
+        wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+        tar xf kubeval-linux-amd64.tar.gz
+        sudo mv kubeval /usr/local/bin/
+        
+        # Install conftest
+        wget -O conftest.tar.gz https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_Linux_x86_64.tar.gz
+        tar xzf conftest.tar.gz
+        sudo mv conftest /usr/local/bin/
+    
+    - name: 🔍 Validate YAML syntax
+      run: |
+        find k8s/ -name "*.yaml" -exec kubectl apply --dry-run=client --validate=true -f {} \;
+    
+    - name: 📋 Validate with kubeval
+      run: |
+        find k8s/base/ -name "*.yaml" -exec kubeval {} \;
+    
+    - name: 🛡️ Security policy validation with conftest
+      run: |
+        # Create basic security policies
+        mkdir -p policies
+        cat > policies/security.rego << 'EOF'
+        package kubernetes.security
+        
+        deny[msg] {
+          input.kind == "Pod"
+          input.spec.securityContext.runAsRoot == true
+          msg := "Containers must not run as root"
+        }
+        
+        deny[msg] {
+          input.kind == "Pod"
+          not input.spec.securityContext.runAsNonRoot
+          msg := "Must specify runAsNonRoot"
+        }
+        EOF
+        
+        find k8s/base/ -name "*.yaml" -exec conftest test --policy policies {} \;
+
+  # ==============================================================================
+  # DÉPLOIEMENT PAR ENVIRONNEMENT
+  # ==============================================================================
+  
+  deploy-staging:
+    name: 🚀 Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [test, build, validate-k8s]
+    if: ${{ github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging') }}
+    environment:
+      name: staging
+      url: https://staging.databot.example.com
+    
+    steps:
+    - name: 📁 Checkout code
+      uses: actions/checkout@v4
+    
+    - name: 🔧 Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+    
+    - name: 🔐 Configure kubectl
+      run: |
+        echo "${{ secrets.KUBECONFIG_STAGING }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+        kubectl config current-context
+    
+    - name: 🏗️ Deploy with Kustomize
+      env:
+        KUBECONFIG: kubeconfig
+      run: |
+        cd k8s/overlays/staging
+        kustomize edit set image databot/api:${{ github.sha }}
+        kustomize edit set image databot/admin:${{ github.sha }}
+        kustomize edit set image databot/blockchain:${{ github.sha }}
+        kustomize edit set image databot/nginx:${{ github.sha }}
+        
+        kubectl apply -k .
+    
+    - name: ⏳ Wait for deployment
+      env:
+        KUBECONFIG: kubeconfig
+      run: |
+        kubectl wait --for=condition=available --timeout=600s deployment/databot-api -n databot-staging
+        kubectl wait --for=condition=available --timeout=600s deployment/databot-admin -n databot-staging
+    
+    - name: 🧪 Run smoke tests
+      env:
+        KUBECONFIG: kubeconfig
+      run: |
+        # Port-forward pour les tests
+        kubectl port-forward -n databot-staging service/nginx-service 8080:80 &
+        sleep 10
+        
+        # Tests de base
+        curl -f http://localhost:8080/health || exit 1
+        curl -f http://localhost:8080/api/status || exit 1
+
+  deploy-production:
+    name: 🚀 Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [test, build, validate-k8s]
+    if: ${{ github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.environment == 'production') }}
+    environment:
+      name: production
+      url: https://databot.example.com
+    
+    steps:
+    - name: 📁 Checkout code
+      uses: actions/checkout@v4
+    
+    - name: 🔧 Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+    
+    - name: 🔐 Configure kubectl
+      run: |
+        echo "${{ secrets.KUBECONFIG_PRODUCTION }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+        kubectl config current-context
+    
+    - name: 💾 Backup before deployment
+      env:
+        KUBECONFIG: kubeconfig
+      run: |
+        # Créer un snapshot des volumes avant déploiement
+        kubectl apply -f - << 'EOF'
+        apiVersion: batch/v1
+        kind: Job
+        metadata:
+          name: pre-deploy-backup-$(date +%s)
+          namespace: databot-v4
+        spec:
+          template:
+            spec:
+              containers:
+              - name: backup
+                image: databot/backup:latest
+                command: ["/scripts/backup.sh"]
+                env:
+                - name: BACKUP_TYPE
+                  value: "pre-deployment"
+              restartPolicy: Never
+        EOF
+    
+    - name: 🏗️ Deploy with Blue-Green strategy
+      env:
+        KUBECONFIG: kubeconfig
+      run: |
+        # Déploiement Blue-Green
+        cd k8s/overlays/production
+        
+        # Créer une nouvelle version (Green)
+        kustomize edit set namesuffix -- -green
+        kustomize edit set image databot/api:${{ github.sha }}
+        kustomize edit set image databot/admin:${{ github.sha }}
+        kustomize edit set image databot/blockchain:${{ github.sha }}
+        kustomize edit set image databot/nginx:${{ github.sha }}
+        
+        # Déployer la version Green
+        kubectl apply -k .
+        
+        # Attendre que Green soit prêt
+        kubectl wait --for=condition=available --timeout=900s deployment/databot-api-green -n databot-v4
+        
+        # Tests de vérification sur Green
+        kubectl port-forward -n databot-v4 service/databot-api-service-green 8081:8080 &
+        sleep 10
+        curl -f http://localhost:8081/health || exit 1
+        
+        # Basculer le trafic vers Green
+        kubectl patch service nginx-service -n databot-v4 -p '{"spec":{"selector":{"version":"green"}}}'
+        
+        # Supprimer l'ancienne version (Blue) après validation
+        sleep 60
+        kubectl delete deployment databot-api-blue -n databot-v4 || true
+        kubectl delete deployment databot-admin-blue -n databot-v4 || true
+    
+    - name: 📊 Post-deployment monitoring
+      env:
+        KUBECONFIG: kubeconfig
+      run: |
+        # Vérifier les métriques post-déploiement
+        echo "Déploiement terminé. Monitoring des métriques..."
+        kubectl top pods -n databot-v4
+        kubectl get hpa -n databot-v4
+
+  # ==============================================================================
+  # NOTIFICATION ET NETTOYAGE
+  # ==============================================================================
+  
+  notify:
+    name: 📢 Notify Deployment Status
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+    
+    steps:
+    - name: 📧 Send Slack notification
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#databot-deployments'
+        text: |
+          🚀 DATA_BOT v4 Deployment ${{ job.status }}
+          
+          📋 Summary:
+          - Branch: ${{ github.ref_name }}
+          - Commit: ${{ github.sha }}
+          - Environment: ${{ github.event.inputs.environment || 'auto' }}
+          - Status: ${{ job.status }}
+          
+          🔗 Links:
+          - [Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - [Commit](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    
+    - name: 📝 Create GitHub release
+      if: ${{ github.ref == 'refs/heads/main' && success() }}
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ github.run_number }}
+        release_name: Release v${{ github.run_number }}
+        body: |
+          🚀 Automated release for DATA_BOT v4
+          
+          **Changes:**
+          - Deployed commit: ${{ github.sha }}
+          - Build number: ${{ github.run_number }}
+          
+          **Deployment Status:**
+          - ✅ Production deployment successful
+          - 🔍 All security scans passed
+          - 🧪 All tests passed
+        draft: false
+        prerelease: false
+
+  cleanup:
+    name: 🧹 Cleanup
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+    
+    steps:
+    - name: 🗑️ Clean up old images
+      run: |
+        # Nettoyer les images Docker anciennes (garder les 10 dernières)
+        echo "Nettoyage des anciennes images Docker..."
+        # Cette étape serait implémentée avec l'API GitHub Packages
+    
+    - name: 📊 Update deployment metrics
+      run: |
+        echo "Mise à jour des métriques de déploiement..."
+        # Envoyer les métriques à un système de monitoring externe

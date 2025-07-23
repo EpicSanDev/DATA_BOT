@@ -1,0 +1,657 @@
+# ==============================================================================
+# NETWORK POLICIES DATA_BOT v4 - Isolation et sécurité réseau
+# ==============================================================================
+
+# Politique par défaut : deny all
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: security
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+---
+# Politique pour l'API principale
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: databot-api-network-policy
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: api-security
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: api
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Trafic depuis Nginx
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: proxy
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 8083
+  # Métriques Prometheus
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: monitoring
+    ports:
+    - protocol: TCP
+      port: 9090
+  # Health checks depuis les load balancers
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  # Vers PostgreSQL
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Vers Redis
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  # Vers Elasticsearch
+  - to:
+    - podSelector:
+        matchLabels:
+          app: elasticsearch
+    ports:
+    - protocol: TCP
+      port: 9200
+  # Vers OpenSearch
+  - to:
+    - podSelector:
+        matchLabels:
+          app: opensearch
+    ports:
+    - protocol: TCP
+      port: 9200
+  # Vers Qdrant
+  - to:
+    - podSelector:
+        matchLabels:
+          app: qdrant
+    ports:
+    - protocol: TCP
+      port: 6333
+  # Vers Ollama
+  - to:
+    - podSelector:
+        matchLabels:
+          app: ollama
+    ports:
+    - protocol: TCP
+      port: 11434
+  # Vers les services blockchain
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: blockchain
+    ports:
+    - protocol: TCP
+      port: 8334
+  # DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  # HTTPS vers l'extérieur (APIs externes)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  # HTTP vers l'extérieur (si nécessaire)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 80
+
+---
+# Politique pour les services blockchain
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: databot-blockchain-network-policy
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: blockchain-security
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: blockchain
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Trafic RPC depuis l'API
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: api
+    ports:
+    - protocol: TCP
+      port: 8334
+  # Trafic P2P entre nœuds blockchain
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: blockchain
+    ports:
+    - protocol: TCP
+      port: 8335
+  # Métriques Prometheus
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: monitoring
+    ports:
+    - protocol: TCP
+      port: 9091
+  # Health checks
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 8334
+  egress:
+  # Communication P2P entre nœuds
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: blockchain
+    ports:
+    - protocol: TCP
+      port: 8335
+  # Vers PostgreSQL pour persistance
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  # DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  # Communication externe pour synchronisation blockchain
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 8334
+    - protocol: TCP
+      port: 8335
+
+---
+# Politique pour PostgreSQL
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-network-policy
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: database-security
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Depuis l'API principale
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: api
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Depuis les services blockchain
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: blockchain
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Depuis l'admin
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: admin
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Depuis les services de backup
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: backup
+    ports:
+    - protocol: TCP
+      port: 5432
+  egress:
+  # DNS seulement
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# Politique pour Redis
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-network-policy
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: cache-security
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Depuis l'API principale
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: api
+    ports:
+    - protocol: TCP
+      port: 6379
+  # Depuis l'admin
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: admin
+    ports:
+    - protocol: TCP
+      port: 6379
+  egress:
+  # DNS seulement
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# Politique pour Elasticsearch
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: elasticsearch-network-policy
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: search-security
+spec:
+  podSelector:
+    matchLabels:
+      app: elasticsearch
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Depuis l'API principale
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: api
+    ports:
+    - protocol: TCP
+      port: 9200
+  # Depuis Filebeat (logs)
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: databot
+    ports:
+    - protocol: TCP
+      port: 9200
+  # Depuis les services de backup
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: backup
+    ports:
+    - protocol: TCP
+      port: 9200
+  egress:
+  # DNS seulement
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# Politique pour OpenSearch
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: opensearch-network-policy
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: opensearch-security
+spec:
+  podSelector:
+    matchLabels:
+      app: opensearch
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Depuis l'API principale
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: api
+    ports:
+    - protocol: TCP
+      port: 9200
+  # Depuis les services de backup
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: backup
+    ports:
+    - protocol: TCP
+      port: 9200
+  egress:
+  # DNS seulement
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# Politique pour Qdrant
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: qdrant-network-policy
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: vector-security
+spec:
+  podSelector:
+    matchLabels:
+      app: qdrant
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Depuis l'API principale
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: api
+    ports:
+    - protocol: TCP
+      port: 6333
+  # Depuis les services de backup
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: backup
+    ports:
+    - protocol: TCP
+      port: 6333
+  egress:
+  # DNS seulement
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# Politique pour Ollama
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ollama-network-policy
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: ai-security
+spec:
+  podSelector:
+    matchLabels:
+      app: ollama
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Depuis l'API principale
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: api
+    ports:
+    - protocol: TCP
+      port: 11434
+  egress:
+  # DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  # HTTPS pour télécharger les modèles
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+
+---
+# Politique pour Nginx (reverse proxy)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nginx-network-policy
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: proxy-security
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: proxy
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Trafic externe sur HTTP/HTTPS
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 80
+    - protocol: TCP
+      port: 443
+  egress:
+  # Vers l'API principale
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: api
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+    - protocol: TCP
+      port: 8083
+  # Vers l'admin
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: admin
+    ports:
+    - protocol: TCP
+      port: 8082
+  # DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# Politique pour le monitoring
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-network-policy
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: monitoring-security
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: monitoring
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Accès externe pour Grafana
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 3000
+  # Accès externe pour Prometheus
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 9090
+  egress:
+  # Vers tous les services pour collecter les métriques
+  - to:
+    - podSelector: {}
+    ports:
+    - protocol: TCP
+      port: 9090
+    - protocol: TCP
+      port: 9091
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8334
+  # DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+
+---
+# Politique pour les services de backup
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backup-network-policy
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: backup-security
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: backup
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Pas de trafic entrant nécessaire
+  egress:
+  # Vers tous les services de données pour backup
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  - to:
+    - podSelector:
+        matchLabels:
+          app: elasticsearch
+    ports:
+    - protocol: TCP
+      port: 9200
+  - to:
+    - podSelector:
+        matchLabels:
+          app: opensearch
+    ports:
+    - protocol: TCP
+      port: 9200
+  - to:
+    - podSelector:
+        matchLabels:
+          app: qdrant
+    ports:
+    - protocol: TCP
+      port: 6333
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: blockchain
+    ports:
+    - protocol: TCP
+      port: 8334
+  # DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+  # HTTPS vers stockage externe (S3, etc.)
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443

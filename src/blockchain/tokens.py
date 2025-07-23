@@ -3,6 +3,8 @@ ARC Token System for ArchiveChain
 
 Implements the ARC token economics, distribution, rewards, and burning mechanisms
 as described in the ArchiveChain specification.
+
+SÉCURITÉ: Intègre la validation obligatoire des signatures ECDSA et SafeMath
 """
 
 import json
@@ -13,6 +15,9 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from enum import Enum
+
+# Import des modules de sécurité
+from .security import signature_manager, safe_add, safe_subtract, safe_multiply, SafeMath
 
 class TokenTransactionType(Enum):
     """Types of token transactions"""
@@ -52,6 +57,54 @@ class TokenTransaction:
         data['amount'] = Decimal(data['amount'])
         data['fee'] = Decimal(data['fee'])
         return cls(**data)
+    
+    def sign_transaction(self, private_key) -> bool:
+        """
+        Signe la transaction de token avec une clé privée ECDSA
+        
+        CORRECTION CRITIQUE: Implémente la signature obligatoire des transactions de tokens
+        
+        Args:
+            private_key: Clé privée ECDSA pour signer
+            
+        Returns:
+            True si la signature a réussi
+        """
+        try:
+            transaction_data = self.to_dict()
+            self.signature = signature_manager.sign_transaction(transaction_data, private_key)
+            return True
+        except Exception:
+            return False
+    
+    def verify_signature(self) -> bool:
+        """
+        Vérifie la signature de la transaction de token
+        
+        Returns:
+            True si la signature est valide
+        """
+        if not self.signature:
+            return False
+        
+        try:
+            transaction_data = self.to_dict()
+            return signature_manager.verify_transaction_signature(
+                transaction_data,
+                self.signature,
+                self.from_address
+            )
+        except Exception:
+            return False
+    
+    def is_signed(self) -> bool:
+        """
+        Vérifie si la transaction de token est signée
+        
+        Returns:
+            True si la transaction a une signature
+        """
+        return bool(self.signature and self.signature.strip())
 
 class ARCToken:
     """ARC Token implementation with economics from ArchiveChain spec"""
@@ -107,9 +160,16 @@ class ARCToken:
             self.mint_tokens(address, amount, "genesis_distribution")
     
     def mint_tokens(self, to_address: str, amount: Decimal, reason: str) -> str:
-        """Mint new tokens"""
-        if self.total_minted + amount > self.TOTAL_SUPPLY:
-            raise ValueError("Cannot mint beyond total supply")
+        """
+        Mint new tokens using SafeMath operations
+        
+        CORRECTION CRITIQUE: Utilise SafeMath pour éviter les overflows
+        """
+        # Validate amount with SafeMath
+        amount = SafeMath.validate_amount(amount)
+        
+        # Validate supply limits with SafeMath
+        SafeMath.validate_supply_limits(self.total_minted, amount)
         
         tx_id = self.generate_tx_id()
         transaction = TokenTransaction(
@@ -123,18 +183,31 @@ class ARCToken:
             metadata={"reason": reason}
         )
         
-        # Update balances
-        self.balances[to_address] = self.balances.get(to_address, Decimal('0')) + amount
-        self.total_minted += amount
-        self.circulation_supply += amount
+        # Update balances using SafeMath operations
+        current_balance = self.balances.get(to_address, Decimal('0'))
+        self.balances[to_address] = safe_add(current_balance, amount)
+        self.total_minted = safe_add(self.total_minted, amount)
+        self.circulation_supply = safe_add(self.circulation_supply, amount)
         self.transactions.append(transaction)
         
         return tx_id
     
     def transfer_tokens(self, from_address: str, to_address: str, amount: Decimal, fee: Decimal = Decimal('0')) -> str:
-        """Transfer tokens between addresses"""
-        if self.get_balance(from_address) < amount + fee:
-            raise ValueError("Insufficient balance")
+        """
+        Transfer tokens between addresses using SafeMath operations
+        
+        CORRECTION CRITIQUE: Utilise SafeMath pour sécuriser les transferts
+        """
+        # Validate amounts with SafeMath
+        amount = SafeMath.validate_amount(amount)
+        fee = SafeMath.validate_amount(fee)
+        
+        # Calculate total transaction amount
+        total_amount = safe_add(amount, fee)
+        
+        # Validate balance operation
+        current_balance = self.get_balance(from_address)
+        SafeMath.validate_balance_operation(current_balance, total_amount, 'subtract')
         
         tx_id = self.generate_tx_id()
         transaction = TokenTransaction(
@@ -148,13 +221,14 @@ class ARCToken:
             metadata={}
         )
         
-        # Update balances
-        self.balances[from_address] -= (amount + fee)
-        self.balances[to_address] = self.balances.get(to_address, Decimal('0')) + amount
+        # Update balances using SafeMath operations
+        self.balances[from_address] = safe_subtract(self.balances[from_address], total_amount)
+        current_to_balance = self.balances.get(to_address, Decimal('0'))
+        self.balances[to_address] = safe_add(current_to_balance, amount)
         
-        # Burn transaction fees
+        # Burn transaction fees using SafeMath
         if fee > Decimal('0'):
-            burn_amount = fee * self.TRANSACTION_FEE_BURN_RATE
+            burn_amount = safe_multiply(fee, self.TRANSACTION_FEE_BURN_RATE)
             self.burn_tokens(burn_amount, "transaction_fee_burn")
         
         self.transactions.append(transaction)

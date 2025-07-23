@@ -3,6 +3,8 @@ Smart Contracts for ArchiveChain
 
 Implements archive bounties, preservation pools, and content verification contracts
 as described in the ArchiveChain specification.
+
+ROBUSTESSE: Intègre la gestion d'erreurs robuste et la protection contre les race conditions
 """
 
 import json
@@ -13,6 +15,15 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Callable
 from dataclasses import dataclass, asdict
 from enum import Enum
+
+# Import des modules de robustesse
+from .utils.exceptions import (
+    ContractExecutionError, ConcurrencyError, ValidationError,
+    create_contextual_exception
+)
+from .utils.error_handler import robust_operation, RetryConfig
+from .utils.concurrency import atomic_contract_operation, global_concurrency_manager
+from .utils.validators import DataValidator
 
 class ContractState(Enum):
     """Smart contract states"""
@@ -155,32 +166,88 @@ class ArchiveBounty(SmartContract):
         
         return True
     
+    @atomic_contract_operation("contract_verification", "verify_submission")
+    @robust_operation("contract", RetryConfig(max_attempts=2))
     def verify_submission(self, validator: str, is_valid: bool) -> bool:
-        """Verify bounty submission"""
+        """
+        Verify bounty submission with atomic protection against race conditions
+        
+        CORRECTION CRITIQUE: Protège contre les race conditions lors du vote
+        """
+        if not validator or not isinstance(validator, str):
+            raise ValidationError(
+                "Validator must be a valid string",
+                field_name="validator",
+                expected_format="non_empty_string"
+            )
+        
         if self.status != BountyStatus.IN_PROGRESS:
-            return False
+            raise ContractExecutionError(
+                f"Cannot verify submission: bounty status is {self.status.value}",
+                contract_id=self.contract_id,
+                function_name="verify_submission",
+                execution_step="status_check"
+            )
         
-        # Record vote
-        self.verification_votes[validator] = is_valid
+        # Vérifier que le validateur n'a pas déjà voté
+        if validator in self.verification_votes:
+            raise ContractExecutionError(
+                f"Validator {validator} has already submitted a vote",
+                contract_id=self.contract_id,
+                function_name="verify_submission",
+                execution_step="duplicate_vote_check"
+            )
         
-        self.emit_event("VerificationVote", {
-            "validator": validator,
-            "vote": is_valid,
-            "total_votes": len(self.verification_votes)
+        try:
+            # ATOMIQUE: Enregistrer le vote
+            self.verification_votes[validator] = is_valid
+            
+            self.emit_event("VerificationVote", {
+                "validator": validator,
+                "vote": is_valid,
+                "total_votes": len(self.verification_votes)
+            })
+            
+            # ATOMIQUE: Vérifier et traiter les votes si suffisants
+            if len(self.verification_votes) >= self.required_votes:
+                self._process_verification_result()
+            
+            return True
+            
+        except Exception as e:
+            # Rollback en cas d'erreur
+            if validator in self.verification_votes:
+                del self.verification_votes[validator]
+            
+            raise ContractExecutionError(
+                f"Failed to process verification vote: {str(e)}",
+                contract_id=self.contract_id,
+                function_name="verify_submission",
+                execution_step="vote_processing"
+            )
+    
+    def _process_verification_result(self):
+        """
+        Traite le résultat de la vérification de manière atomique
+        
+        SÉCURITÉ: Cette méthode est appelée dans un contexte atomique
+        """
+        # Calculer les votes de manière déterministe
+        valid_votes = sum(1 for vote in self.verification_votes.values() if vote)
+        total_votes = len(self.verification_votes)
+        
+        # Log pour traçabilité
+        self.emit_event("VerificationResultCalculated", {
+            "valid_votes": valid_votes,
+            "total_votes": total_votes,
+            "threshold": total_votes / 2
         })
         
-        # Check if we have enough votes
-        if len(self.verification_votes) >= self.required_votes:
-            valid_votes = sum(1 for vote in self.verification_votes.values() if vote)
-            total_votes = len(self.verification_votes)
-            
-            # Require majority approval
-            if valid_votes > total_votes / 2:
-                self._complete_bounty()
-            else:
-                self._reject_submission()
-        
-        return True
+        # Décision basée sur la majorité
+        if valid_votes > total_votes / 2:
+            self._complete_bounty()
+        else:
+            self._reject_submission()
     
     def _complete_bounty(self):
         """Complete bounty and distribute reward"""

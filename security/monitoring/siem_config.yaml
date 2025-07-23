@@ -1,0 +1,476 @@
+# 🛡️ Configuration SIEM Enterprise - DATA_BOT
+# Security Information and Event Management
+
+version: "1.0"
+created: "2025-07-23"
+classification: "RESTRICTED"
+
+# ==============================================================================
+# CONFIGURATION GLOBALE SIEM
+# ==============================================================================
+siem:
+  enabled: true
+  version: "enterprise-1.0"
+  deployment_mode: "production"
+  retention_days: 90
+  log_level: "INFO"
+  
+  # Alertes temps réel
+  real_time_alerting: true
+  alert_channels:
+    - slack
+    - email
+    - sms
+    - pagerduty
+  
+  # Base de données des événements
+  storage:
+    type: "elasticsearch"
+    cluster: "databot-security-logs"
+    indices:
+      - security-events
+      - blockchain-events
+      - system-metrics
+      - threat-intelligence
+
+# ==============================================================================
+# SOURCES DE DONNÉES SÉCURITÉ
+# ==============================================================================
+data_sources:
+  
+  # Logs applicatifs
+  application_logs:
+    - name: "databot-api"
+      path: "/opt/databot/logs/api/*.log"
+      parser: "json"
+      tags: ["application", "api"]
+      
+    - name: "blockchain-node"
+      path: "/opt/databot/logs/blockchain/*.log"
+      parser: "custom_blockchain"
+      tags: ["blockchain", "consensus"]
+      
+    - name: "nginx-access"
+      path: "/var/log/nginx/access.log"
+      parser: "nginx"
+      tags: ["web", "access"]
+      
+    - name: "nginx-error"
+      path: "/var/log/nginx/error.log"
+      parser: "nginx_error"
+      tags: ["web", "error"]
+
+  # Logs système
+  system_logs:
+    - name: "syslog"
+      path: "/var/log/syslog"
+      parser: "syslog"
+      tags: ["system"]
+      
+    - name: "auth-logs"
+      path: "/var/log/auth.log"
+      parser: "auth"
+      tags: ["authentication", "system"]
+      
+    - name: "docker-logs"
+      path: "/var/lib/docker/containers/*/*-json.log"
+      parser: "docker"
+      tags: ["container", "docker"]
+
+  # Logs Kubernetes
+  kubernetes_logs:
+    - name: "k8s-audit"
+      path: "/var/log/audit.log"
+      parser: "k8s_audit"
+      tags: ["kubernetes", "audit"]
+      
+    - name: "k8s-events"
+      source: "kubernetes-api"
+      parser: "k8s_events"
+      tags: ["kubernetes", "events"]
+
+  # Métriques sécurité
+  security_metrics:
+    - name: "failed-logins"
+      source: "auth_logs"
+      metric_type: "counter"
+      
+    - name: "suspicious-ips"
+      source: "nginx_access"
+      metric_type: "gauge"
+      
+    - name: "blockchain-anomalies"
+      source: "blockchain_logs"
+      metric_type: "histogram"
+
+# ==============================================================================
+# RÈGLES DE DÉTECTION
+# ==============================================================================
+detection_rules:
+
+  # Authentification suspecte
+  authentication:
+    
+    - name: "brute_force_attack"
+      description: "Détection attaques par force brute"
+      severity: "HIGH"
+      condition: >
+        failed_login_attempts > 10 
+        FROM same_ip 
+        WITHIN 5_minutes
+      actions:
+        - block_ip
+        - send_alert
+        - log_incident
+        
+    - name: "credential_stuffing"
+      description: "Détection credential stuffing"
+      severity: "CRITICAL"
+      condition: >
+        failed_logins > 50 
+        FROM different_ips 
+        WITH same_username 
+        WITHIN 10_minutes
+      actions:
+        - block_user
+        - emergency_alert
+        - auto_investigation
+
+  # Activité réseau suspecte
+  network:
+    
+    - name: "ddos_attack"
+      description: "Détection attaques DDoS"
+      severity: "CRITICAL"
+      condition: >
+        requests_per_second > 1000 
+        FROM same_ip 
+        OR total_requests > 10000 
+        WITHIN 1_minute
+      actions:
+        - rate_limit
+        - block_ip
+        - scale_infrastructure
+        
+    - name: "port_scanning"
+      description: "Détection scan de ports"
+      severity: "MEDIUM"
+      condition: >
+        unique_ports_accessed > 20 
+        FROM same_ip 
+        WITHIN 2_minutes
+      actions:
+        - monitor_ip
+        - log_activity
+
+  # Blockchain sécurité
+  blockchain:
+    
+    - name: "consensus_attack"
+      description: "Détection attaque consensus"
+      severity: "CRITICAL"
+      condition: >
+        invalid_block_proposals > 5 
+        FROM same_validator 
+        WITHIN 1_hour
+      actions:
+        - slash_validator
+        - emergency_alert
+        - freeze_consensus
+        
+    - name: "transaction_anomaly"
+      description: "Transactions anormales"
+      severity: "HIGH"
+      condition: >
+        transaction_volume > 1000_ARC 
+        OR gas_price < 0.001 
+        OR recipient IN blacklist
+      actions:
+        - review_transaction
+        - flag_address
+        
+    - name: "smart_contract_exploit"
+      description: "Exploitation smart contracts"
+      severity: "CRITICAL"
+      condition: >
+        contract_call_failures > 10 
+        WITH same_signature 
+        WITHIN 5_minutes
+      actions:
+        - pause_contract
+        - emergency_alert
+        - forensic_analysis
+
+  # Système et infrastructure
+  system:
+    
+    - name: "resource_exhaustion"
+      description: "Épuisement ressources"
+      severity: "HIGH"
+      condition: >
+        cpu_usage > 90% 
+        OR memory_usage > 95% 
+        OR disk_usage > 90% 
+        FOR 5_minutes
+      actions:
+        - auto_scale
+        - alert_ops
+        - performance_analysis
+        
+    - name: "privilege_escalation"
+      description: "Élévation privilèges"
+      severity: "CRITICAL"
+      condition: >
+        sudo_commands FROM non_admin_user 
+        OR root_access FROM service_account
+      actions:
+        - block_user
+        - emergency_alert
+        - audit_permissions
+
+# ==============================================================================
+# INTELLIGENCE ARTIFICIELLE SÉCURITÉ
+# ==============================================================================
+ai_security:
+  
+  # Machine Learning pour détection anomalies
+  anomaly_detection:
+    enabled: true
+    models:
+      - behavioral_analysis
+      - traffic_patterns
+      - blockchain_patterns
+    training_data_days: 30
+    sensitivity: "medium"
+    
+  # Analyse comportementale
+  behavioral_analysis:
+    user_profiling: true
+    api_usage_patterns: true
+    blockchain_interaction_patterns: true
+    baseline_learning_period: "14_days"
+    
+  # Threat Intelligence
+  threat_intelligence:
+    enabled: true
+    feeds:
+      - "AlienVault OTX"
+      - "Threat Intelligence Platform"
+      - "Blockchain Threat Database"
+    update_frequency: "hourly"
+    
+    # IOC (Indicators of Compromise)
+    ioc_detection:
+      malicious_ips: true
+      suspicious_domains: true
+      known_attack_signatures: true
+      blockchain_blacklisted_addresses: true
+
+# ==============================================================================
+# ALERTES ET NOTIFICATIONS
+# ==============================================================================
+alerting:
+  
+  # Canaux de notification
+  channels:
+    
+    slack:
+      enabled: true
+      webhook_url: "${SLACK_SECURITY_WEBHOOK}"
+      channels:
+        critical: "#security-critical"
+        high: "#security-alerts"
+        medium: "#security-monitoring"
+        
+    email:
+      enabled: true
+      smtp_server: "${SMTP_SERVER}"
+      recipients:
+        critical: ["security-team@databot.com", "ciso@databot.com"]
+        high: ["security-team@databot.com"]
+        medium: ["devops@databot.com"]
+        
+    pagerduty:
+      enabled: true
+      service_key: "${PAGERDUTY_SERVICE_KEY}"
+      escalation_policy: "security-escalation"
+      
+    sms:
+      enabled: true
+      provider: "twilio"
+      numbers:
+        critical: ["+33123456789", "+33987654321"]
+
+  # Niveaux d'escalade
+  escalation:
+    
+    critical:
+      immediate: true
+      channels: ["slack", "email", "pagerduty", "sms"]
+      auto_response: true
+      
+    high:
+      delay: "2_minutes"
+      channels: ["slack", "email", "pagerduty"]
+      
+    medium:
+      delay: "15_minutes"
+      channels: ["slack", "email"]
+      
+    low:
+      delay: "1_hour"
+      channels: ["slack"]
+
+# ==============================================================================
+# RÉPONSE AUTOMATIQUE AUX INCIDENTS
+# ==============================================================================
+incident_response:
+  
+  # Actions automatiques
+  automated_actions:
+    
+    block_ip:
+      enabled: true
+      method: "iptables"
+      duration: "1_hour"
+      whitelist_check: true
+      
+    rate_limiting:
+      enabled: true
+      default_limit: "100_requests_per_minute"
+      burst_limit: "200_requests_per_minute"
+      
+    auto_scaling:
+      enabled: true
+      triggers:
+        - "ddos_attack"
+        - "resource_exhaustion"
+      min_instances: 3
+      max_instances: 10
+      
+    service_isolation:
+      enabled: true
+      triggers:
+        - "smart_contract_exploit"
+        - "consensus_attack"
+      quarantine_duration: "30_minutes"
+
+  # Playbooks automatisés
+  playbooks:
+    
+    - name: "ddos_response"
+      triggers: ["ddos_attack"]
+      steps:
+        - enable_rate_limiting
+        - scale_infrastructure
+        - activate_cdn_protection
+        - notify_security_team
+        
+    - name: "blockchain_incident"
+      triggers: ["consensus_attack", "smart_contract_exploit"]
+      steps:
+        - pause_affected_services
+        - capture_blockchain_state
+        - notify_blockchain_team
+        - initiate_forensics
+        
+    - name: "data_breach_response"
+      triggers: ["unauthorized_data_access"]
+      steps:
+        - isolate_affected_systems
+        - preserve_evidence
+        - notify_privacy_officer
+        - prepare_breach_notification
+
+# ==============================================================================
+# COMPLIANCE ET AUDIT
+# ==============================================================================
+compliance:
+  
+  # Standards de conformité
+  standards:
+    - "ISO_27001"
+    - "SOC_2_TYPE_II"
+    - "GDPR"
+    - "NIST_CYBERSECURITY"
+    
+  # Audit trail
+  audit_trail:
+    enabled: true
+    retention: "7_years"
+    immutable_storage: true
+    digital_signatures: true
+    
+  # Rapports de conformité
+  reporting:
+    frequency: "monthly"
+    automated_generation: true
+    formats: ["pdf", "json", "xml"]
+    
+    reports:
+      - security_posture
+      - incident_summary
+      - compliance_status
+      - risk_assessment
+
+# ==============================================================================
+# INTÉGRATIONS EXTERNES
+# ==============================================================================
+integrations:
+  
+  # SOAR (Security Orchestration)
+  soar:
+    enabled: true
+    platform: "phantom"
+    endpoint: "${SOAR_ENDPOINT}"
+    
+  # Threat Intelligence Platforms
+  tip:
+    enabled: true
+    platforms:
+      - "MISP"
+      - "ThreatConnect"
+    
+  # Vulnerability Scanners
+  vulnerability_scanners:
+    - "Nessus"
+    - "OpenVAS"
+    - "Qualys"
+    
+  # Cloud Security
+  cloud_security:
+    aws_cloudtrail: true
+    aws_guardduty: true
+    aws_security_hub: true
+
+# ==============================================================================
+# CONFIGURATION TECHNIQUE
+# ==============================================================================
+technical_config:
+  
+  # Performance
+  performance:
+    max_events_per_second: 10000
+    buffer_size: "100MB"
+    batch_processing: true
+    compression: "gzip"
+    
+  # Haute disponibilité
+  high_availability:
+    clustering: true
+    replication_factor: 3
+    failover_timeout: "30_seconds"
+    
+  # Sécurité du SIEM lui-même
+  siem_security:
+    encryption_at_rest: true
+    encryption_in_transit: true
+    access_control: "rbac"
+    audit_siem_access: true
+    
+  # API de gestion
+  management_api:
+    enabled: true
+    authentication: "oauth2"
+    rate_limiting: true
+    audit_api_calls: true

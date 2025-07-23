@@ -1,0 +1,170 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: databot-production
+
+# Référence vers la configuration de base
+resources:
+  - ../../base
+
+# Namespace pour la production
+namespace: databot-v4
+
+# Préfixe pour les ressources de production
+namePrefix: prod-
+
+# Labels spécifiques à la production
+commonLabels:
+  environment: production
+  tier: production
+  app.kubernetes.io/instance: databot-production
+
+# Annotations pour la production
+commonAnnotations:
+  deployment.kubernetes.io/environment: "production"
+  cost-center: "production-workloads"
+  backup.policy: "daily"
+
+# Images spécifiques à la production avec tags stables
+images:
+  - name: databot/api
+    newTag: v4.1.0
+  - name: databot/admin
+    newTag: v4.1.0
+  - name: databot/blockchain
+    newTag: v4.1.0
+  - name: databot/nginx
+    newTag: v4.1.0
+
+# Replicas pour la production (haute disponibilité)
+replicas:
+  - name: databot-api
+    count: 5
+  - name: databot-admin
+    count: 2
+  - name: databot-blockchain
+    count: 3
+  - name: postgres
+    count: 1
+  - name: redis
+    count: 1
+  - name: elasticsearch
+    count: 3
+  - name: opensearch
+    count: 3
+  - name: qdrant
+    count: 2
+  - name: ollama
+    count: 2
+  - name: prometheus
+    count: 1
+  - name: grafana
+    count: 1
+
+# Générateurs ConfigMap pour la production
+configMapGenerator:
+  - name: production-config
+    envs:
+      - production.env
+    options:
+      disableNameSuffixHash: true
+
+# Générateurs Secret pour la production
+secretGenerator:
+  - name: production-secrets
+    envs:
+      - production-secrets.env
+    type: Opaque
+    options:
+      disableNameSuffixHash: true
+
+# Patches spécifiques à la production
+patches:
+  # Augmenter les ressources pour la production
+  - target:
+      kind: Deployment
+      name: databot-api
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "2Gi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "1"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "8Gi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "4"
+
+  # Configuration de stockage haute performance pour la production
+  - target:
+      kind: PersistentVolumeClaim
+      name: databot-blockchain-pvc
+    patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: "200Gi"
+      - op: replace
+        path: /spec/storageClassName
+        value: "databot-blockchain"
+
+  # Configuration des sondes pour la production
+  - target:
+      kind: Deployment
+      name: databot-api
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/livenessProbe/initialDelaySeconds
+        value: 180
+      - op: replace
+        path: /spec/template/spec/containers/0/readinessProbe/initialDelaySeconds
+        value: 60
+
+  # Anti-affinité stricte pour la blockchain en production
+  - target:
+      kind: StatefulSet
+      name: databot-blockchain
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/affinity/podAntiAffinity/requiredDuringSchedulingIgnoredDuringExecution/0/topologyKey
+        value: "failure-domain.beta.kubernetes.io/zone"
+
+  # Configuration des HPA pour la production
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: databot-api-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 5
+      - op: replace
+        path: /spec/maxReplicas
+        value: 50
+
+# Transformateurs pour la production
+transformers:
+  - |-
+    apiVersion: builtin
+    kind: NamespaceTransformer
+    metadata:
+      name: production-namespace
+      namespace: databot-v4
+    setRoleBindingSubjects: true
+    unsetOnly: false
+    fieldSpecs:
+    - path: metadata/namespace
+      create: true
+
+# Validateurs pour la production
+validators:
+  - |-
+    apiVersion: builtin
+    kind: ReplicaCountTransformer
+    metadata:
+      name: production-replicas
+    fieldSpecs:
+    - path: spec/replicas
+      create: false

@@ -1,0 +1,463 @@
+# ==============================================================================
+# SERVICE BLOCKCHAIN DATA_BOT v4 - StatefulSet pour persistance
+# ==============================================================================
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: databot-blockchain
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: blockchain
+    app.kubernetes.io/version: v4
+    app.kubernetes.io/part-of: databot-platform
+  annotations:
+    app.kubernetes.io/description: "Service blockchain avec persistance pour DATA_BOT v4"
+spec:
+  serviceName: databot-blockchain-headless
+  replicas: 3
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: databot
+      app.kubernetes.io/component: blockchain
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: databot
+        app.kubernetes.io/component: blockchain
+        app.kubernetes.io/version: v4
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8334"
+        prometheus.io/path: "/metrics"
+        co.elastic.logs/enabled: "true"
+    spec:
+      serviceAccountName: databot-blockchain
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+      - name: blockchain-init
+        image: databot/blockchain:v4-latest
+        command: ["/bin/sh"]
+        args:
+        - -c
+        - |
+          echo "Initialisation du nœud blockchain ${HOSTNAME}..."
+          mkdir -p /data/blockchain
+          if [ ! -f /data/blockchain/node.id ]; then
+            echo "Génération de l'identité du nœud..."
+            python -c "
+            import uuid
+            import json
+            node_id = str(uuid.uuid4())
+            config = {
+              'node_id': node_id,
+              'node_type': '${NODE_TYPE}',
+              'created_at': '$(date -Iseconds)'
+            }
+            with open('/data/blockchain/node.id', 'w') as f:
+              json.dump(config, f, indent=2)
+            print(f'Nœud initialisé avec ID: {node_id}')
+            "
+          fi
+          echo "Initialisation terminée"
+        env:
+        - name: NODE_TYPE
+          value: "full_archive"
+        volumeMounts:
+        - name: blockchain-storage
+          mountPath: /data
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+      containers:
+      - name: databot-blockchain
+        image: databot/blockchain:v4-latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: blockchain-rpc
+          containerPort: 8334
+          protocol: TCP
+        - name: p2p
+          containerPort: 8335
+          protocol: TCP
+        - name: metrics
+          containerPort: 9091
+          protocol: TCP
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: BLOCKCHAIN_NODE_ID
+          value: "$(POD_NAME)"
+        - name: BLOCKCHAIN_NETWORK_ID
+          value: "databot-mainnet"
+        - name: BLOCKCHAIN_DATA_DIR
+          value: "/data/blockchain"
+        - name: BLOCKCHAIN_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: databot-credentials
+              key: BLOCKCHAIN_PRIVATE_KEY
+        - name: BLOCKCHAIN_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: databot-credentials
+              key: BLOCKCHAIN_ENCRYPTION_KEY
+        envFrom:
+        - configMapRef:
+            name: databot-config
+        volumeMounts:
+        - name: blockchain-storage
+          mountPath: /data
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1"
+            ephemeral-storage: "2Gi"
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+            ephemeral-storage: "10Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8334
+            scheme: HTTP
+          initialDelaySeconds: 180
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8334
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+        startupProbe:
+          httpGet:
+            path: /startup
+            port: 8334
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 10
+          failureThreshold: 40
+          successThreshold: 1
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+      volumes:
+      - name: config
+        configMap:
+          name: databot-config
+      - name: tmp
+        emptyDir:
+          sizeLimit: 1Gi
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 120
+      dnsPolicy: ClusterFirst
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                - blockchain
+            topologyKey: kubernetes.io/hostname
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-type
+                operator: In
+                values:
+                - storage-optimized
+      tolerations:
+      - key: "blockchain-node"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+  volumeClaimTemplates:
+  - metadata:
+      name: blockchain-storage
+      labels:
+        app.kubernetes.io/name: databot
+        app.kubernetes.io/component: blockchain-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: databot-blockchain
+      resources:
+        requests:
+          storage: 100Gi
+
+---
+# Service headless pour la découverte des nœuds P2P
+apiVersion: v1
+kind: Service
+metadata:
+  name: databot-blockchain-headless
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: blockchain
+    app.kubernetes.io/version: v4
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: blockchain
+  ports:
+  - name: blockchain-rpc
+    port: 8334
+    targetPort: 8334
+    protocol: TCP
+  - name: p2p
+    port: 8335
+    targetPort: 8335
+    protocol: TCP
+
+---
+# Service standard pour l'accès aux RPC
+apiVersion: v1
+kind: Service
+metadata:
+  name: databot-blockchain-service
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: blockchain
+    app.kubernetes.io/version: v4
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8334"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: blockchain
+  ports:
+  - name: blockchain-rpc
+    port: 8334
+    targetPort: 8334
+    protocol: TCP
+  - name: metrics
+    port: 9091
+    targetPort: 9091
+    protocol: TCP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 300
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: databot-blockchain
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: blockchain
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/databot-blockchain-role
+automountServiceAccountToken: true
+
+---
+# Politique de disruption pour les nœuds blockchain
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: databot-blockchain-pdb
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: blockchain
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: databot
+      app.kubernetes.io/component: blockchain
+
+---
+# Job de maintenance blockchain
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: blockchain-maintenance
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: blockchain-maintenance
+spec:
+  schedule: "0 2 * * 0"  # Chaque dimanche à 2h
+  timeZone: "Europe/Paris"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: databot
+            app.kubernetes.io/component: blockchain-maintenance
+        spec:
+          serviceAccountName: databot-blockchain
+          containers:
+          - name: blockchain-maintenance
+            image: databot/blockchain:v4-latest
+            command: ["/bin/sh"]
+            args:
+            - -c
+            - |
+              echo "Début de la maintenance blockchain..."
+              python /app/scripts/blockchain_maintenance.py
+              echo "Maintenance terminée"
+            env:
+            - name: MAINTENANCE_MODE
+              value: "true"
+            envFrom:
+            - configMapRef:
+                name: databot-config
+            volumeMounts:
+            - name: blockchain-storage
+              mountPath: /data
+              readOnly: true
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "100m"
+              limits:
+                memory: "1Gi"
+                cpu: "500m"
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+              runAsUser: 1000
+              capabilities:
+                drop:
+                - ALL
+          volumes:
+          - name: blockchain-storage
+            persistentVolumeClaim:
+              claimName: databot-blockchain-pvc
+          restartPolicy: OnFailure
+          terminationGracePeriodSeconds: 30
+
+---
+# NetworkPolicy pour sécuriser les communications blockchain
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: blockchain-network-policy
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: blockchain-security
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: blockchain
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Autoriser le trafic RPC depuis l'API
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: api
+    ports:
+    - protocol: TCP
+      port: 8334
+  # Autoriser le trafic P2P entre nœuds blockchain
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: blockchain
+    ports:
+    - protocol: TCP
+      port: 8335
+  # Autoriser les métriques Prometheus
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9091
+  egress:
+  # Autoriser la communication vers la base de données
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: database
+    ports:
+    - protocol: TCP
+      port: 5432
+  # Autoriser P2P entre nœuds
+  - to:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/component: blockchain
+    ports:
+    - protocol: TCP
+      port: 8335
+  # DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53

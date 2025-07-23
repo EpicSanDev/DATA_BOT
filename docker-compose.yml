@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Main DATA_BOT v4 application
   databot-v4:

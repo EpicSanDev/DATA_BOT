@@ -1,0 +1,563 @@
+# 🛡️ Configuration IDS/IPS Enterprise - DATA_BOT
+# Intrusion Detection and Prevention System
+
+version: "1.0"
+created: "2025-07-23"
+classification: "RESTRICTED"
+
+# ==============================================================================
+# CONFIGURATION GLOBALE IDS/IPS
+# ==============================================================================
+ids_ips:
+  enabled: true
+  version: "enterprise-1.0"
+  deployment_mode: "inline"  # inline | passive | hybrid
+  
+  # Modes opérationnels
+  detection_mode: true      # IDS - Détection
+  prevention_mode: true     # IPS - Prévention
+  learning_mode: false      # Mode apprentissage initial
+  
+  # Performance
+  throughput_limit: "10Gbps"
+  concurrent_sessions: 1000000
+  packet_inspection: "deep"
+  
+  # Logging et alertes
+  log_level: "INFO"
+  alert_severity_threshold: "MEDIUM"
+  real_time_alerts: true
+
+# ==============================================================================
+# SENSORS ET POINTS DE SURVEILLANCE
+# ==============================================================================
+sensors:
+  
+  # Sensor réseau principal
+  network_sensor:
+    name: "databot-main-sensor"
+    location: "DMZ"
+    interface: "eth0"
+    capture_method: "promiscuous"
+    buffer_size: "1GB"
+    
+    # Filtres de capture
+    capture_filters:
+      - "not host 127.0.0.1"  # Exclure localhost
+      - "not port 22"         # Exclure SSH admin
+      - "port 80 or port 443 or port 8080"  # Trafic web
+      
+  # Sensor API Gateway
+  api_sensor:
+    name: "databot-api-sensor"
+    location: "API_GATEWAY"
+    interface: "lo"
+    focus: "application_layer"
+    
+    monitored_endpoints:
+      - "/api/v1/*"
+      - "/blockchain/*"
+      - "/admin/*"
+      
+  # Sensor Blockchain
+  blockchain_sensor:
+    name: "databot-blockchain-sensor"
+    location: "BLOCKCHAIN_NODES"
+    protocol_analysis:
+      - "p2p_gossip"
+      - "consensus_messages"
+      - "transaction_pool"
+      
+  # Sensor interne
+  internal_sensor:
+    name: "databot-internal-sensor"
+    location: "INTERNAL_NETWORK"
+    monitoring:
+      - "lateral_movement"
+      - "privilege_escalation"
+      - "data_exfiltration"
+
+# ==============================================================================
+# RÈGLES DE DÉTECTION D'INTRUSION
+# ==============================================================================
+detection_rules:
+
+  # ==================== ATTAQUES RÉSEAU ====================
+  network_attacks:
+    
+    # Scan de ports
+    - rule_id: "NET_001"
+      name: "Port Scan Detection"
+      description: "Détection scan de ports TCP/UDP"
+      severity: "MEDIUM"
+      pattern: >
+        tcp_syn_packets > 100 
+        TO different_ports 
+        FROM same_source 
+        WITHIN 60_seconds
+      action: "ALERT_AND_LOG"
+      
+    # Attaque DDoS
+    - rule_id: "NET_002"
+      name: "DDoS Attack Detection"
+      description: "Détection attaques par déni de service"
+      severity: "CRITICAL"
+      pattern: >
+        requests_per_second > 1000 
+        FROM same_source 
+        OR total_bandwidth > 100Mbps 
+        FROM single_source
+      action: "BLOCK_AND_ALERT"
+      
+    # Scan de vulnérabilités
+    - rule_id: "NET_003"
+      name: "Vulnerability Scan"
+      description: "Détection scanners de vulnérabilités"
+      severity: "HIGH"
+      signatures:
+        - "User-Agent: Nessus"
+        - "User-Agent: OpenVAS"
+        - "User-Agent: Nikto"
+        - "X-Scanner: *"
+      action: "BLOCK_AND_ALERT"
+      
+    # Attaque par réflexion DNS
+    - rule_id: "NET_004"
+      name: "DNS Reflection Attack"
+      description: "Détection attaques par réflexion DNS"
+      severity: "HIGH"
+      pattern: >
+        dns_queries > 50 
+        WITH query_type = "ANY" 
+        FROM same_source 
+        WITHIN 10_seconds
+      action: "RATE_LIMIT_AND_ALERT"
+
+  # ==================== ATTAQUES WEB ====================
+  web_attacks:
+    
+    # Injection SQL
+    - rule_id: "WEB_001"
+      name: "SQL Injection Attempt"
+      description: "Tentative d'injection SQL"
+      severity: "CRITICAL"
+      signatures:
+        - "' OR '1'='1"
+        - "UNION SELECT"
+        - "DROP TABLE"
+        - "INSERT INTO"
+        - "; UPDATE "
+        - "' AND 1=1--"
+      action: "BLOCK_AND_ALERT"
+      
+    # Cross-Site Scripting (XSS)
+    - rule_id: "WEB_002"
+      name: "XSS Attempt"
+      description: "Tentative de Cross-Site Scripting"
+      severity: "HIGH"
+      signatures:
+        - "<script>"
+        - "javascript:"
+        - "onerror="
+        - "onload="
+        - "alert("
+        - "document.cookie"
+      action: "BLOCK_AND_ALERT"
+      
+    # Local File Inclusion (LFI)
+    - rule_id: "WEB_003"
+      name: "LFI Attempt"
+      description: "Tentative de Local File Inclusion"
+      severity: "HIGH"
+      signatures:
+        - "../../../etc/passwd"
+        - "..\\..\\..\\windows\\system32"
+        - "/proc/self/environ"
+        - "file://"
+      action: "BLOCK_AND_ALERT"
+      
+    # Remote Code Execution
+    - rule_id: "WEB_004"
+      name: "RCE Attempt"
+      description: "Tentative d'exécution de code distant"
+      severity: "CRITICAL"
+      signatures:
+        - "system("
+        - "exec("
+        - "eval("
+        - "shell_exec("
+        - "passthru("
+        - "`whoami`"
+        - "${IFS}"
+      action: "BLOCK_AND_ALERT"
+      
+    # Brute Force Authentication
+    - rule_id: "WEB_005"
+      name: "Brute Force Login"
+      description: "Attaque par force brute sur authentification"
+      severity: "HIGH"
+      pattern: >
+        failed_login_attempts > 10 
+        FROM same_ip 
+        TO same_endpoint 
+        WITHIN 5_minutes
+      action: "BLOCK_IP_AND_ALERT"
+
+  # ==================== ATTAQUES BLOCKCHAIN ====================
+  blockchain_attacks:
+    
+    # Attaque 51%
+    - rule_id: "BC_001"
+      name: "51% Attack Detection"
+      description: "Détection tentative d'attaque 51%"
+      severity: "CRITICAL"
+      pattern: >
+        hash_rate_percentage > 45% 
+        FROM single_miner 
+        FOR 10_minutes
+      action: "EMERGENCY_ALERT_AND_FORK_PROTECTION"
+      
+    # Double Spending
+    - rule_id: "BC_002"
+      name: "Double Spend Attempt"
+      description: "Tentative de double dépense"
+      severity: "CRITICAL"
+      pattern: >
+        same_utxo 
+        IN multiple_transactions 
+        WITHIN same_block
+      action: "REJECT_TRANSACTION_AND_ALERT"
+      
+    # Sybil Attack
+    - rule_id: "BC_003"
+      name: "Sybil Attack Detection"
+      description: "Détection attaque Sybil"
+      severity: "HIGH"
+      pattern: >
+        new_nodes > 100 
+        FROM same_ip_range 
+        WITHIN 1_hour
+      action: "RATE_LIMIT_NODES_AND_ALERT"
+      
+    # Eclipse Attack
+    - rule_id: "BC_004"
+      name: "Eclipse Attack Detection"
+      description: "Détection attaque Eclipse"
+      severity: "HIGH"
+      pattern: >
+        node_connections 
+        ALL_FROM same_autonomous_system 
+        OR same_hosting_provider
+      action: "DIVERSIFY_CONNECTIONS_AND_ALERT"
+      
+    # Smart Contract Exploit
+    - rule_id: "BC_005"
+      name: "Smart Contract Exploit"
+      description: "Exploitation de smart contract"
+      severity: "CRITICAL"
+      pattern: >
+        contract_call_failures > 50 
+        WITH same_method_signature 
+        FROM same_address 
+        WITHIN 5_minutes
+      action: "PAUSE_CONTRACT_AND_ALERT"
+
+  # ==================== MENACES INTERNES ====================
+  insider_threats:
+    
+    # Accès privilégié suspect
+    - rule_id: "INT_001"
+      name: "Suspicious Privileged Access"
+      description: "Accès privilégié suspect"
+      severity: "HIGH"
+      pattern: >
+        admin_commands 
+        OUTSIDE business_hours 
+        FROM non_admin_user
+      action: "ALERT_AND_LOG_DETAIL"
+      
+    # Exfiltration de données
+    - rule_id: "INT_002"
+      name: "Data Exfiltration"
+      description: "Tentative d'exfiltration de données"
+      severity: "CRITICAL"
+      pattern: >
+        large_data_transfer > 1GB 
+        TO external_destination 
+        OUTSIDE business_hours
+      action: "BLOCK_AND_EMERGENCY_ALERT"
+      
+    # Mouvement latéral
+    - rule_id: "INT_003"
+      name: "Lateral Movement"
+      description: "Mouvement latéral dans le réseau"
+      severity: "MEDIUM"
+      pattern: >
+        network_connections 
+        TO multiple_internal_hosts 
+        WITH different_protocols 
+        FROM single_source
+      action: "MONITOR_AND_ALERT"
+
+# ==============================================================================
+# ACTIONS DE PRÉVENTION
+# ==============================================================================
+prevention_actions:
+  
+  # Blocage par IP
+  block_ip:
+    enabled: true
+    method: "iptables"
+    duration: "1_hour"
+    whitelist_check: true
+    escalation_threshold: 3
+    
+  # Rate limiting
+  rate_limit:
+    enabled: true
+    default_limit: "100_requests_per_minute"
+    burst_allowance: "200_requests"
+    sliding_window: "1_minute"
+    
+  # Isolation de service
+  service_isolation:
+    enabled: true
+    quarantine_network: "isolated_vlan"
+    duration: "30_minutes"
+    health_check_interval: "5_minutes"
+    
+  # Redirection vers honeypot
+  honeypot_redirect:
+    enabled: true
+    honeypot_targets:
+      - "192.168.100.100"  # Web honeypot
+      - "192.168.100.101"  # SSH honeypot
+      - "192.168.100.102"  # Database honeypot
+    
+  # Analyse comportementale
+  behavioral_analysis:
+    enabled: true
+    learning_period: "7_days"
+    anomaly_threshold: 2.5  # Écarts-types
+    baseline_update_frequency: "daily"
+
+# ==============================================================================
+# HONEYPOTS ET DECEPTION
+# ==============================================================================
+honeypots:
+  
+  # Honeypot Web
+  web_honeypot:
+    enabled: true
+    ports: [8080, 8081, 8082]
+    services:
+      - "fake_admin_panel"
+      - "fake_api_endpoints"
+      - "fake_backup_files"
+    interaction_level: "medium"
+    
+  # Honeypot SSH
+  ssh_honeypot:
+    enabled: true
+    port: 2222
+    fake_services: ["mysql", "postgresql", "redis"]
+    credential_harvesting: true
+    
+  # Honeypot Base de données
+  database_honeypot:
+    enabled: true
+    database_types: ["mysql", "postgresql", "mongodb"]
+    fake_schemas:
+      - "user_accounts"
+      - "financial_data"
+      - "blockchain_keys"
+    
+  # Honeytokens (canary tokens)
+  honeytokens:
+    enabled: true
+    types:
+      - "fake_api_keys"
+      - "fake_private_keys"
+      - "fake_database_credentials"
+      - "fake_config_files"
+    distribution: "strategic_locations"
+
+# ==============================================================================
+# INTELLIGENCE ARTIFICIELLE
+# ==============================================================================
+ai_detection:
+  
+  # Machine Learning Models
+  ml_models:
+    
+    # Détection d'anomalies réseau
+    network_anomaly:
+      algorithm: "isolation_forest"
+      features:
+        - "packet_size_distribution"
+        - "connection_patterns"
+        - "protocol_usage"
+        - "timing_patterns"
+      training_data_days: 30
+      retrain_frequency: "weekly"
+      
+    # Analyse comportementale utilisateur
+    user_behavior:
+      algorithm: "lstm_autoencoder"
+      features:
+        - "login_patterns"
+        - "api_usage_patterns"
+        - "data_access_patterns"
+        - "geographic_patterns"
+      baseline_period: "14_days"
+      
+    # Détection malware
+    malware_detection:
+      algorithm: "cnn_deep_learning"
+      features:
+        - "file_entropy"
+        - "api_call_sequences"
+        - "network_behavior"
+        - "system_call_patterns"
+      model_update_frequency: "daily"
+      
+    # Classification des menaces
+    threat_classification:
+      algorithm: "random_forest"
+      features:
+        - "attack_vectors"
+        - "target_systems"
+        - "payload_characteristics"
+        - "source_reputation"
+      confidence_threshold: 0.85
+
+  # Threat Intelligence Integration
+  threat_intelligence:
+    enabled: true
+    feeds:
+      - "commercial_feeds"
+      - "open_source_feeds"
+      - "government_feeds"
+      - "industry_sharing"
+    
+    ioc_types:
+      - "malicious_ips"
+      - "malicious_domains"
+      - "malware_hashes"
+      - "attack_signatures"
+      - "blockchain_blacklist"
+    
+    update_frequency: "real_time"
+    correlation_engine: true
+
+# ==============================================================================
+# INTÉGRATION ET ORCHESTRATION
+# ==============================================================================
+integration:
+  
+  # SIEM Integration
+  siem_integration:
+    enabled: true
+    protocol: "syslog"
+    format: "CEF"
+    real_time_streaming: true
+    
+  # SOAR Integration
+  soar_integration:
+    enabled: true
+    platform: "phantom"
+    automated_response: true
+    playbook_execution: true
+    
+  # Threat Intelligence Platforms
+  tip_integration:
+    enabled: true
+    platforms: ["MISP", "ThreatConnect"]
+    bidirectional_sharing: true
+    
+  # Security Orchestration
+  orchestration:
+    enabled: true
+    workflow_engine: "apache_airflow"
+    response_automation: 80  # % d'automatisation
+    human_intervention_threshold: "CRITICAL"
+
+# ==============================================================================
+# TABLEAUX DE BORD ET REPORTING
+# ==============================================================================
+dashboards:
+  
+  # Dashboard opérationnel temps réel
+  operational_dashboard:
+    enabled: true
+    refresh_interval: "5_seconds"
+    widgets:
+      - "threat_landscape"
+      - "attack_timeline"
+      - "blocked_attempts"
+      - "system_health"
+      - "performance_metrics"
+      
+  # Dashboard exécutif
+  executive_dashboard:
+    enabled: true
+    refresh_interval: "1_hour"
+    widgets:
+      - "security_posture"
+      - "risk_trends"
+      - "compliance_status"
+      - "incident_summary"
+      - "cost_analysis"
+      
+  # Dashboard technique
+  technical_dashboard:
+    enabled: true
+    refresh_interval: "30_seconds"
+    widgets:
+      - "sensor_status"
+      - "rule_performance"
+      - "false_positive_rates"
+      - "network_topology"
+      - "threat_hunting_tools"
+
+# ==============================================================================
+# CONFIGURATION AVANCÉE
+# ==============================================================================
+advanced_config:
+  
+  # Performance tuning
+  performance:
+    packet_processing_threads: 16
+    memory_allocation: "8GB"
+    disk_cache_size: "2GB"
+    tcp_reassembly_timeout: "60_seconds"
+    
+  # Haute disponibilité
+  high_availability:
+    clustering: true
+    active_active_mode: true
+    failover_time: "< 30_seconds"
+    data_replication: "real_time"
+    
+  # Scalabilité
+  scalability:
+    horizontal_scaling: true
+    auto_scaling_triggers:
+      - "cpu_usage > 80%"
+      - "memory_usage > 85%"
+      - "packet_loss > 1%"
+    max_instances: 10
+    
+  # Sécurité du système IDS/IPS
+  system_security:
+    management_encryption: true
+    secure_communications: "TLS_1.3"
+    access_control: "multi_factor"
+    audit_logging: "comprehensive"
+    
+  # Maintenance et mises à jour
+  maintenance:
+    signature_updates: "automatic"
+    system_updates: "scheduled"
+    backup_frequency: "daily"
+    retention_policy: "90_days"

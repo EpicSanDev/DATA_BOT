@@ -1,0 +1,65 @@
+# Dockerfile optimisé pour les nœuds blockchain ArchiveChain
+FROM python:3.11-slim
+
+LABEL maintainer="DATA_BOT Team"
+LABEL description="ArchiveChain Blockchain Node"
+LABEL version="1.0.0"
+
+# Variables d'environnement
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV NODE_TYPE=archive
+ENV NETWORK_PORT=8333
+ENV API_PORT=5000
+ENV P2P_PORT=8334
+
+# Créer un utilisateur non-root pour la sécurité
+RUN groupadd -r archivechain && useradd -r -g archivechain archivechain
+
+# Installation des dépendances système
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    make \
+    libssl-dev \
+    libffi-dev \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Créer les répertoires de travail
+RUN mkdir -p /app/blockchain /app/data /app/logs /app/config
+WORKDIR /app
+
+# Copier les requirements et installer les dépendances Python
+COPY requirements_blockchain.txt .
+RUN pip install --no-cache-dir -r requirements_blockchain.txt
+
+# Copier le code source de la blockchain
+COPY blockchain/ ./blockchain/
+COPY src/blockchain/ ./src/blockchain/
+
+# Copier les scripts d'entrée
+COPY blockchain/docker/scripts/ ./scripts/
+RUN chmod +x ./scripts/*.sh
+
+# Créer les répertoires de données avec les bonnes permissions
+RUN chown -R archivechain:archivechain /app
+RUN chmod -R 755 /app/blockchain
+RUN chmod -R 700 /app/data
+
+# Exposer les ports
+EXPOSE $NETWORK_PORT $API_PORT $P2P_PORT
+
+# Points de montage pour les volumes
+VOLUME ["/app/data", "/app/logs", "/app/config"]
+
+# Basculer vers l'utilisateur non-root
+USER archivechain
+
+# Commande de démarrage
+CMD ["./scripts/start_blockchain_node.sh"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:${API_PORT}/health || exit 1

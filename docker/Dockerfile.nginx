@@ -1,0 +1,262 @@
+# ==============================================================================
+# DATA_BOT Nginx Reverse Proxy - Production-ready with SSL
+# ==============================================================================
+
+# Base Nginx Alpine pour sécurité et performance
+FROM nginx:1.25-alpine AS base
+
+# Métadonnées
+LABEL maintainer="DATA_BOT Team"
+LABEL version="4.0"
+LABEL description="DATA_BOT Nginx Reverse Proxy with SSL and Load Balancing"
+
+# Installation des outils de sécurité
+RUN apk add --no-cache \
+    openssl \
+    curl \
+    certbot \
+    certbot-nginx \
+    && rm -rf /var/cache/apk/*
+
+# Création de l'utilisateur nginx non-root
+RUN addgroup -g 1000 nginx-databot && \
+    adduser -D -u 1000 -G nginx-databot nginx-databot
+
+# Configuration des répertoires
+RUN mkdir -p /etc/nginx/ssl \
+             /etc/nginx/conf.d \
+             /etc/nginx/sites-available \
+             /etc/nginx/sites-enabled \
+             /var/log/nginx \
+             /var/cache/nginx \
+             /run/nginx && \
+    chown -R nginx-databot:nginx-databot /etc/nginx /var/log/nginx /var/cache/nginx /run/nginx
+
+# Configuration SSL auto-signée pour développement
+RUN openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout /etc/nginx/ssl/databot.key \
+    -out /etc/nginx/ssl/databot.crt \
+    -subj "/C=FR/ST=IDF/L=Paris/O=DataBot/OU=DevOps/CN=databot.local"
+
+# Configuration de sécurité SSL
+COPY <<EOF /etc/nginx/conf.d/ssl.conf
+# SSL Configuration
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
+ssl_prefer_server_ciphers off;
+ssl_session_cache shared:SSL:10m;
+ssl_session_timeout 10m;
+ssl_stapling on;
+ssl_stapling_verify on;
+
+# Security headers
+add_header X-Frame-Options DENY;
+add_header X-Content-Type-Options nosniff;
+add_header X-XSS-Protection "1; mode=block";
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin";
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'";
+EOF
+
+# Create startup script with runtime configuration generation
+COPY <<EOF /usr/local/bin/start-nginx.sh
+#!/bin/sh
+echo "Starting DATA_BOT Nginx..."
+
+# Create runtime upstream configuration based on environment
+if [ "\$ENVIRONMENT" = "standalone" ] || [ "\$NGINX_STANDALONE" = "true" ]; then
+    echo "Running in standalone mode - creating fallback upstream configuration..."
+    cat > /etc/nginx/conf.d/upstream.conf << 'UPSTREAM_EOF'
+# Fallback upstream configurations for standalone mode
+upstream api_backend {
+    server 127.0.0.1:8080 down;
+    keepalive 32;
+}
+
+upstream admin_backend {
+    server 127.0.0.1:8082 down;
+}
+
+upstream blockchain_backend {
+    server 127.0.0.1:8334 down;
+}
+
+upstream graphql_backend {
+    server 127.0.0.1:8083 down;
+}
+UPSTREAM_EOF
+else
+    echo "Running in clustered mode - using production upstream configuration..."
+    cat > /etc/nginx/conf.d/upstream.conf << 'UPSTREAM_EOF'
+# Production upstream configurations
+upstream api_backend {
+    least_conn;
+    server databot-api:8080 max_fails=3 fail_timeout=30s;
+    keepalive 32;
+}
+
+upstream admin_backend {
+    server databot-admin:8082 max_fails=2 fail_timeout=30s;
+}
+
+upstream blockchain_backend {
+    server databot-blockchain:8334 max_fails=2 fail_timeout=30s;
+}
+
+upstream graphql_backend {
+    server databot-api:8083 max_fails=2 fail_timeout=30s;
+}
+UPSTREAM_EOF
+fi
+
+# Create main nginx configuration
+cat > /etc/nginx/nginx.conf << 'NGINX_EOF'
+user nginx-databot;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /run/nginx/nginx.pid;
+
+events {
+    worker_connections 1024;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Include configurations
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+
+    # Logging
+    log_format main '\$remote_addr - \$remote_user [\$time_local] "\$request" '
+                    '\$status \$body_bytes_sent "\$http_referer" '
+                    '"\$http_user_agent" "\$http_x_forwarded_for"';
+    access_log /var/log/nginx/access.log main;
+
+    # Performance
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    client_max_body_size 100M;
+
+    # Gzip
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json;
+}
+NGINX_EOF
+
+# Create site configuration
+cat > /etc/nginx/sites-available/databot.conf << 'SITE_EOF'
+# DATA_BOT Main Configuration
+server {
+    listen 80;
+    server_name databot.local _;
+    
+    # Redirect HTTP to HTTPS
+    return 301 https://\$server_name\$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name databot.local _;
+    
+    # SSL Configuration
+    ssl_certificate /etc/nginx/ssl/databot.crt;
+    ssl_certificate_key /etc/nginx/ssl/databot.key;
+    include /etc/nginx/conf.d/ssl.conf;
+    
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json;
+    
+    # Main API
+    location / {
+        proxy_pass http://api_backend;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_Set_header X-Forwarded-Proto \$scheme;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 30s;
+        proxy_read_timeout 30s;
+    }
+    
+    # Admin Interface
+    location /admin {
+        proxy_pass http://admin_backend;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_Set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_Set_header X-Forwarded-Proto \$scheme;
+    }
+    
+    # GraphQL API
+    location /graphql {
+        proxy_pass http://graphql_backend;
+        proxy_set_header Host \$host;
+        proxy_Set_header X-Real-IP \$remote_addr;
+        proxy_Set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_Set_header X-Forwarded-Proto \$scheme;
+    }
+    
+    # Blockchain API
+    location /blockchain {
+        proxy_pass http://blockchain_backend;
+        proxy_Set_header Host \$host;
+        proxy_Set_header X-Real-IP \$remote_addr;
+        proxy_Set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_Set_header X-Forwarded-Proto \$scheme;
+    }
+    
+    # Health check
+    location /nginx-health {
+        access_log off;
+        return 200 "healthy\n";
+        add_header Content-Type text/plain;
+    }
+    
+    # Static files caching
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+}
+SITE_EOF
+
+# Enable the site
+ln -sf /etc/nginx/sites-available/databot.conf /etc/nginx/sites-enabled/
+
+echo "Validating configuration..."
+nginx -t
+if [ \$? -eq 0 ]; then
+    echo "Configuration is valid. Starting Nginx..."
+    exec nginx -g "daemon off;"
+else
+    echo "Configuration error. Exiting..."
+    exit 1
+fi
+EOF
+
+RUN chmod +x /usr/local/bin/start-nginx.sh
+
+# Exposition des ports
+EXPOSE 80 443
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost/nginx-health || exit 1
+
+# Changement d'utilisateur
+USER nginx-databot
+
+# Point d'entrée
+CMD ["/usr/local/bin/start-nginx.sh"]

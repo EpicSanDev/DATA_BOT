@@ -1,0 +1,387 @@
+# ==============================================================================
+# DATA_BOT v4 - Production Override Configuration
+# ==============================================================================
+
+version: '3.8'
+
+# Configuration spécifique production avec optimisations avancées
+services:
+  # ==============================================================================
+  # Services principaux avec scaling et haute disponibilité
+  # ==============================================================================
+  
+  databot-api:
+    image: ${DOCKER_REGISTRY:-docker.io}/databot/api:${TAG:-latest}
+    deploy:
+      mode: replicated
+      replicas: 3
+      placement:
+        max_replicas_per_node: 1
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        monitor: 60s
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: WARNING
+      PYTHONOPTIMIZE: 2
+      # Optimisations performance
+      UVICORN_WORKERS: 4
+      UVICORN_WORKER_CLASS: uvicorn.workers.UvicornWorker
+      # Cache et performance
+      REDIS_POOL_SIZE: 20
+      DB_POOL_SIZE: 20
+      DB_POOL_MAX_OVERFLOW: 30
+      # Sécurité production
+      SECURE_SSL_REDIRECT: true
+      SESSION_COOKIE_SECURE: true
+      CSRF_COOKIE_SECURE: true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  databot-admin:
+    image: ${DOCKER_REGISTRY:-docker.io}/databot/admin:${TAG:-latest}
+    deploy:
+      mode: replicated
+      replicas: 2
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    environment:
+      ENVIRONMENT: production
+      STREAMLIT_SERVER_RUN_ON_SAVE: false
+      STREAMLIT_CLIENT_SHOW_ERROR_DETAILS: false
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  databot-blockchain:
+    image: ${DOCKER_REGISTRY:-docker.io}/databot/blockchain:${TAG:-latest}
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.5'
+        reservations:
+          memory: 1G
+          cpus: '0.8'
+    environment:
+      ENVIRONMENT: production
+      BLOCKCHAIN_MINING_ENABLED: true
+      BLOCKCHAIN_BACKUP_ENABLED: true
+      BLOCKCHAIN_BACKUP_INTERVAL: 3600
+    volumes:
+      - type: volume
+        source: databot-blockchain
+        target: /app/data/blockchain
+        volume:
+          nocopy: true
+
+  # ==============================================================================
+  # Bases de données avec haute disponibilité
+  # ==============================================================================
+
+  postgres:
+    image: postgres:15-alpine
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    environment:
+      POSTGRES_SHARED_PRELOAD_LIBRARIES: pg_stat_statements
+      POSTGRES_MAX_CONNECTIONS: 200
+      POSTGRES_SHARED_BUFFERS: 256MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 1GB
+      POSTGRES_MAINTENANCE_WORK_MEM: 64MB
+      POSTGRES_CHECKPOINT_COMPLETION_TARGET: 0.9
+      POSTGRES_WAL_BUFFERS: 16MB
+      POSTGRES_DEFAULT_STATISTICS_TARGET: 100
+    command: >
+      postgres
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    command: >
+      redis-server
+      --maxmemory 768mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --tcp-keepalive 60
+      --tcp-backlog 511
+      --timeout 0
+      --databases 16
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.0
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    environment:
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+      - cluster.name=databot-production
+      - node.name=databot-es-prod
+      - bootstrap.memory_lock=true
+      - indices.memory.index_buffer_size=10%
+      - indices.fielddata.cache.size=40%
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  # ==============================================================================
+  # Services monitoring avec alerting
+  # ==============================================================================
+
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=50GB'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+      - '--storage.tsdb.wal-compression'
+
+  grafana:
+    image: grafana/grafana:10.1.0
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    environment:
+      - GF_SERVER_ROOT_URL=https://monitoring.${DOMAIN:-databot.local}
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD_FILE=/run/secrets/grafana_password
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SMTP_ENABLED=true
+      - GF_SMTP_HOST=${SMTP_HOST:-smtp.gmail.com:587}
+      - GF_SMTP_USER=${SMTP_USER}
+      - GF_SMTP_PASSWORD_FILE=/run/secrets/smtp_password
+      - GF_ALERTING_ENABLED=true
+    secrets:
+      - grafana_password
+      - smtp_password
+
+  # ==============================================================================
+  # Load Balancer avec SSL et sécurité renforcée
+  # ==============================================================================
+
+  nginx:
+    image: ${DOCKER_REGISTRY:-docker.io}/databot/nginx:${TAG:-latest}
+    deploy:
+      mode: replicated
+      replicas: 2
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+      update_config:
+        parallelism: 1
+        delay: 10s
+    environment:
+      - NGINX_WORKER_PROCESSES=auto
+      - NGINX_WORKER_CONNECTIONS=1024
+      - NGINX_KEEPALIVE_TIMEOUT=65
+    volumes:
+      - type: bind
+        source: ${SSL_CERT_PATH:-./ssl}
+        target: /etc/nginx/ssl
+        read_only: true
+      - type: volume
+        source: nginx-cache
+        target: /var/cache/nginx
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host
+      - target: 443
+        published: 443
+        protocol: tcp
+        mode: host
+
+  # ==============================================================================
+  # Services additionnels pour production
+  # ==============================================================================
+
+  # Backup automatique
+  backup-service:
+    image: postgres:15-alpine
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-databot_v4}
+      POSTGRES_USER: ${POSTGRES_USER:-databot}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      BACKUP_RETENTION_DAYS: 30
+      S3_BUCKET: ${BACKUP_S3_BUCKET}
+      AWS_ACCESS_KEY_ID_FILE: /run/secrets/aws_access_key
+      AWS_SECRET_ACCESS_KEY_FILE: /run/secrets/aws_secret_key
+    volumes:
+      - backup-data:/backup
+      - ./scripts/backup.sh:/usr/local/bin/backup.sh:ro
+    command: >
+      sh -c "
+      while true; do
+        /usr/local/bin/backup.sh
+        sleep 86400
+      done
+      "
+    secrets:
+      - postgres_password
+      - aws_access_key
+      - aws_secret_key
+    networks:
+      - databot-backend
+
+  # Log aggregation
+  fluentd:
+    image: fluent/fluentd:v1.16-debian-1
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+    ports:
+      - "24224:24224"
+    volumes:
+      - ./fluentd/fluent.conf:/fluentd/etc/fluent.conf:ro
+      - databot-logs:/var/log/databot
+    networks:
+      - databot-monitoring
+
+# ==============================================================================
+# Volumes additionnels pour production
+# ==============================================================================
+volumes:
+  backup-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${BACKUP_PATH:-/opt/databot/backups}
+  
+  nginx-cache:
+    driver: local
+
+# ==============================================================================
+# Secrets additionnels pour production
+# ==============================================================================
+secrets:
+  smtp_password:
+    file: ./secrets/smtp_password.txt
+  aws_access_key:
+    file: ./secrets/aws_access_key.txt
+  aws_secret_key:
+    file: ./secrets/aws_secret_key.txt
+  ssl_cert:
+    file: ./secrets/ssl_cert.pem
+  ssl_key:
+    file: ./secrets/ssl_key.pem
+
+# ==============================================================================
+# Configuration supplémentaire
+# ==============================================================================
+configs:
+  nginx_prod_config:
+    file: ./configs/nginx-prod.conf
+  prometheus_alerts:
+    file: ./configs/alerts.yml
+  grafana_dashboards:
+    file: ./configs/dashboards.json

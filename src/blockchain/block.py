@@ -3,6 +3,9 @@ Block structures for ArchiveChain
 
 Implements the block structure specifically designed for archiving with
 archive metadata, content index, and storage proofs.
+
+SÉCURITÉ: Intègre la validation obligatoire des signatures ECDSA
+ROBUSTESSE: Intègre la gestion d'erreurs robuste et la validation des données
 """
 
 import json
@@ -13,6 +16,15 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, asdict
 
 from .archive_data import ArchiveData
+from .security import signature_manager
+
+# Import des modules de robustesse
+from .utils.exceptions import (
+    SignatureError, InvalidTransactionError, MiningError,
+    ValidationError, create_contextual_exception
+)
+from .utils.error_handler import robust_operation, RetryConfig, global_error_handler
+from .utils.validators import DataValidator
 
 @dataclass
 class BlockHeader:
@@ -77,6 +89,172 @@ class ArchiveTransaction:
         """Calculate transaction hash"""
         tx_string = json.dumps(self.to_dict(), sort_keys=True)
         return hashlib.sha256(tx_string.encode()).hexdigest()
+    
+    @robust_operation("signature", RetryConfig(max_attempts=2))
+    def sign_transaction(self, private_key) -> bool:
+        """
+        Signe la transaction avec une clé privée ECDSA avec gestion d'erreurs robuste
+        
+        CORRECTION CRITIQUE: Remplace except Exception par une gestion d'erreurs spécifique
+        
+        Args:
+            private_key: Clé privée ECDSA pour signer
+            
+        Returns:
+            True si la signature a réussi
+            
+        Raises:
+            SignatureError: Si la signature échoue
+            ValidationError: Si les données sont invalides
+        """
+        if not private_key:
+            raise ValidationError(
+                "Private key cannot be empty",
+                field_name="private_key",
+                expected_format="non_empty_key"
+            )
+        
+        try:
+            # Valider les données de transaction avant signature
+            transaction_data = self.to_dict()
+            
+            # Vérifier que les données essentielles sont présentes
+            required_fields = ['tx_id', 'tx_type', 'sender', 'timestamp']
+            for field in required_fields:
+                if field not in transaction_data or not transaction_data[field]:
+                    raise ValidationError(
+                        f"Missing required field for signature: {field}",
+                        field_name=field,
+                        expected_format="non_empty_value"
+                    )
+            
+            # Signer la transaction
+            self.signature = signature_manager.sign_transaction(transaction_data, private_key)
+            
+            if not self.signature:
+                raise SignatureError(
+                    "Signature operation returned empty result",
+                    signature_type="transaction_signature"
+                )
+            
+            return True
+            
+        except (ValidationError, SignatureError):
+            # Propager les erreurs spécifiques
+            raise
+            
+        except ValueError as e:
+            raise ValidationError(
+                f"Invalid data for signing: {str(e)}",
+                field_name="transaction_data",
+                actual_value=str(e)
+            )
+            
+        except TypeError as e:
+            raise ValidationError(
+                f"Invalid data type for signing: {str(e)}",
+                field_name="transaction_data",
+                actual_value=str(e)
+            )
+            
+        except Exception as e:
+            # Gérer les erreurs inattendues de manière sécurisée
+            handled_error = global_error_handler.handle_error(
+                e,
+                "signature",
+                f"sign_transaction_{self.tx_id}"
+            )
+            raise handled_error
+    
+    @robust_operation("signature", RetryConfig(max_attempts=2))
+    def verify_signature(self) -> bool:
+        """
+        Vérifie la signature de la transaction avec gestion d'erreurs robuste
+        
+        CORRECTION CRITIQUE: Remplace except Exception par une gestion d'erreurs spécifique
+        
+        Returns:
+            True si la signature est valide
+            
+        Raises:
+            SignatureError: Si la vérification de signature échoue
+            ValidationError: Si les données sont invalides
+        """
+        if not self.signature or not self.signature.strip():
+            raise SignatureError(
+                "Transaction signature is missing or empty",
+                signature_type="transaction_signature"
+            )
+        
+        if not self.sender or not self.sender.strip():
+            raise ValidationError(
+                "Transaction sender is missing",
+                field_name="sender",
+                expected_format="non_empty_string"
+            )
+        
+        try:
+            # Préparer les données de transaction
+            transaction_data = self.to_dict()
+            
+            # Vérifier que les données essentielles sont présentes
+            if not transaction_data.get('tx_id'):
+                raise ValidationError(
+                    "Transaction ID missing from data",
+                    field_name="tx_id",
+                    expected_format="non_empty_string"
+                )
+            
+            # Vérifier la signature
+            is_valid = signature_manager.verify_transaction_signature(
+                transaction_data,
+                self.signature,
+                self.sender
+            )
+            
+            if not isinstance(is_valid, bool):
+                raise SignatureError(
+                    "Signature verification returned non-boolean result",
+                    signature_type="transaction_signature"
+                )
+            
+            return is_valid
+            
+        except (SignatureError, ValidationError):
+            # Propager les erreurs spécifiques
+            raise
+            
+        except ValueError as e:
+            raise ValidationError(
+                f"Invalid data for signature verification: {str(e)}",
+                field_name="transaction_data",
+                actual_value=str(e)
+            )
+            
+        except TypeError as e:
+            raise ValidationError(
+                f"Invalid data type for signature verification: {str(e)}",
+                field_name="transaction_data",
+                actual_value=str(e)
+            )
+            
+        except Exception as e:
+            # Gérer les erreurs inattendues de manière sécurisée
+            handled_error = global_error_handler.handle_error(
+                e,
+                "signature",
+                f"verify_signature_{self.tx_id}"
+            )
+            raise handled_error
+    
+    def is_signed(self) -> bool:
+        """
+        Vérifie si la transaction est signée
+        
+        Returns:
+            True si la transaction a une signature
+        """
+        return bool(self.signature and self.signature.strip())
 
 class MerkleTree:
     """Simple Merkle tree implementation for transactions"""
@@ -216,9 +394,20 @@ class Block:
         return True
     
     def validate_transaction(self, tx: ArchiveTransaction) -> bool:
-        """Validate a transaction"""
+        """
+        Validate a transaction with mandatory signature verification
+        
+        CORRECTION CRITIQUE: Validation obligatoire des signatures pour toutes les transactions
+        """
         # Basic validation
         if not tx.tx_id or not tx.sender:
+            return False
+        
+        # OBLIGATOIRE: Vérification de la signature ECDSA
+        if not tx.is_signed():
+            return False
+        
+        if not tx.verify_signature():
             return False
         
         # Validate archive data if present

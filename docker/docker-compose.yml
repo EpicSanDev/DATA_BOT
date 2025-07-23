@@ -1,0 +1,507 @@
+# ==============================================================================
+# DATA_BOT v4 - Production Docker Compose Configuration
+# ==============================================================================
+
+# Variables d'environnement par défaut
+x-common-variables: &common-variables
+  ENVIRONMENT: ${ENVIRONMENT:-production}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  TZ: ${TZ:-Europe/Paris}
+
+# Configuration réseau par défaut
+x-default-networks: &default-networks
+  - databot-frontend
+  - databot-backend
+  - databot-monitoring
+
+services:
+  # ==============================================================================
+  # Services principaux DATA_BOT
+  # ==============================================================================
+  
+  # Service API principal
+  databot-api:
+    platform: linux/arm64
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+      target: runtime
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    image: databot/api:${TAG:-latest}
+    container_name: databot-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "8083:8083"
+    environment:
+      <<: *common-variables
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-databot_v4}
+      POSTGRES_USER: ${POSTGRES_USER:-databot}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      REDIS_HOST: redis
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      ELASTICSEARCH_HOST: elasticsearch
+      OPENSEARCH_HOST: opensearch
+      QDRANT_HOST: qdrant
+      OLLAMA_HOST: ollama:11434
+    volumes:
+      - databot-data:/app/data
+      - databot-logs:/app/logs
+      - databot-archive:/app/archive
+      - databot-screenshots:/app/screenshots
+      - databot-config:/app/config
+    networks: *default-networks
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    secrets:
+      - postgres_password
+      - redis_password
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  # Service Admin Interface
+  databot-admin:
+    platform: linux/arm64
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.admin
+      target: runtime
+    image: databot/admin:${TAG:-latest}
+    container_name: databot-admin
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      <<: *common-variables
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-databot_v4}
+      POSTGRES_USER: ${POSTGRES_USER:-databot}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      REDIS_HOST: redis
+    volumes:
+      - databot-logs:/app/logs
+      - databot-config:/app/config
+    networks: *default-networks
+    depends_on:
+      - databot-api
+    secrets:
+      - postgres_password
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  # Service Blockchain
+  databot-blockchain:
+    platform: linux/arm64
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.blockchain
+      target: runtime
+    image: databot/blockchain:${TAG:-latest}
+    container_name: databot-blockchain
+    restart: unless-stopped
+    ports:
+      - "8334:8334"
+    environment:
+      <<: *common-variables
+      BLOCKCHAIN_ENABLED: "true"
+      NODE_TYPE: full_archive
+      BLOCKCHAIN_LISTEN_PORT: 8334
+      BLOCKCHAIN_MINING_ENABLED: ${BLOCKCHAIN_MINING:-true}
+    volumes:
+      - databot-blockchain:/app/data/blockchain
+      - databot-logs:/app/logs
+    networks:
+      - databot-backend
+      - databot-blockchain
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8334/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.8'
+
+  # ==============================================================================
+  # Services de base de données
+  # ==============================================================================
+
+  # PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: databot-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-databot_v4}
+      POSTGRES_USER: ${POSTGRES_USER:-databot}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - databot-backend
+    secrets:
+      - postgres_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-databot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: databot-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: >
+      --requirepass ${REDIS_PASSWORD:-databot_redis}
+      --appendonly yes
+      --appendfsync everysec
+    volumes:
+      - redis-data:/data
+    networks:
+      - databot-backend
+    secrets:
+      - redis_password
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+
+  # Elasticsearch
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.0
+    container_name: databot-elasticsearch
+    restart: unless-stopped
+    ports:
+      - "9200:9200"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - cluster.name=databot-cluster
+      - node.name=databot-node
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - databot-backend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+
+  # OpenSearch (alternative à Elasticsearch)
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    container_name: databot-opensearch
+    restart: unless-stopped
+    ports:
+      - "9201:9200"
+    environment:
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g"
+      - cluster.name=databot-opensearch
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks:
+      - databot-backend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:v1.6.0
+    container_name: databot-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    networks:
+      - databot-backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+
+  # ==============================================================================
+  # Services AI et ML
+  # ==============================================================================
+
+  # Ollama AI Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: databot-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - databot-backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+
+  # ==============================================================================
+  # Services de monitoring
+  # ==============================================================================
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: databot-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - databot-monitoring
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: databot-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD_FILE=/run/secrets/grafana_password
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../monitoring/grafana:/etc/grafana/provisioning
+    networks:
+      - databot-monitoring
+    secrets:
+      - grafana_password
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.3'
+
+  # ==============================================================================
+  # Reverse Proxy
+  # ==============================================================================
+
+  # Nginx Load Balancer
+  nginx:
+    platform: linux/arm64
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.nginx
+    image: databot/nginx:${TAG:-latest}
+    container_name: databot-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../nginx/ssl:/etc/nginx/ssl
+      - nginx-logs:/var/log/nginx
+    networks:
+      - databot-frontend
+    depends_on:
+      - databot-api
+      - databot-admin
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/nginx-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+
+# ==============================================================================
+# Volumes persistants
+# ==============================================================================
+volumes:
+  # Données applicatives
+  databot-data:
+    driver: local
+  databot-logs:
+    driver: local
+  databot-archive:
+    driver: local
+  databot-screenshots:
+    driver: local
+  databot-config:
+    driver: local
+  databot-blockchain:
+    driver: local
+  
+  # Données bases de données
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  elasticsearch-data:
+    driver: local
+  opensearch-data:
+    driver: local
+  qdrant-data:
+    driver: local
+  ollama-data:
+    driver: local
+  
+  # Monitoring
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  
+  # Logs
+  nginx-logs:
+    driver: local
+
+# ==============================================================================
+# Réseaux isolés
+# ==============================================================================
+networks:
+  # Réseau frontend (publique)
+  databot-frontend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+  
+  # Réseau backend (services internes)
+  databot-backend:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+  
+  # Réseau blockchain (isolé)
+  databot-blockchain:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16
+  
+  # Réseau monitoring
+  databot-monitoring:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.23.0.0/16
+
+# ==============================================================================
+# Secrets management
+# ==============================================================================
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+  redis_password:
+    file: ./secrets/redis_password.txt
+  grafana_password:
+    file: ./secrets/grafana_password.txt

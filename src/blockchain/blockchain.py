@@ -3,6 +3,8 @@ ArchiveChain Blockchain Implementation
 
 Main blockchain class that combines all components: blocks, consensus, tokens,
 smart contracts, and nodes into a cohesive decentralized archiving system.
+
+ROBUSTESSE: Intègre la gestion d'erreurs robuste et la validation des données
 """
 
 import json
@@ -20,6 +22,15 @@ from .consensus import ProofOfArchive, StorageProof, BandwidthProof, LongevityPr
 from .tokens import ARCToken, TokenTransaction, TokenTransactionType
 from .smart_contracts import SmartContractManager, ArchiveBounty, PreservationPool, ContentVerification
 from .node import ArchiveNode, NodeNetwork, NodeType
+
+# Import des modules de robustesse
+from .utils.exceptions import (
+    BlockchainError, InvalidTransactionError, ConsensusError,
+    ContractExecutionError, StorageError, ValidationError
+)
+from .utils.error_handler import robust_operation, RetryConfig, global_error_handler
+from .utils.validators import DataValidator
+from .utils.recovery import global_recovery_manager
 
 class ArchiveChain:
     """Main ArchiveChain blockchain implementation"""
@@ -212,17 +223,96 @@ class ArchiveChain:
         
         return contract_id
     
+    @robust_operation("contract", RetryConfig(max_attempts=2))
     def claim_bounty(self, bounty_id: str, claimant: str, archive_hash: str) -> bool:
-        """Claim an archive bounty"""
+        """
+        Claim an archive bounty with robust error handling
+        
+        CORRECTION CRITIQUE: Remplace except Exception par une gestion d'erreurs spécifique
+        """
+        # Validation des paramètres
+        if not bounty_id or not isinstance(bounty_id, str):
+            raise ValidationError(
+                "Bounty ID must be a valid string",
+                field_name="bounty_id",
+                expected_format="non_empty_string"
+            )
+        
+        if not claimant or not isinstance(claimant, str):
+            raise ValidationError(
+                "Claimant must be a valid string",
+                field_name="claimant",
+                expected_format="non_empty_string"
+            )
+        
+        if not archive_hash or not isinstance(archive_hash, str):
+            raise ValidationError(
+                "Archive hash must be a valid string",
+                field_name="archive_hash",
+                expected_format="non_empty_string"
+            )
+        
         try:
-            return self.smart_contracts.execute_contract(
+            # Créer un checkpoint avant l'opération critique
+            state_data = {
+                "bounty_id": bounty_id,
+                "claimant": claimant,
+                "archive_hash": archive_hash,
+                "timestamp": time.time()
+            }
+            
+            checkpoint_id = global_recovery_manager.create_pre_operation_checkpoint(
+                f"claim_bounty_{bounty_id}",
+                state_data
+            )
+            
+            # Exécuter le contrat
+            result = self.smart_contracts.execute_contract(
                 bounty_id,
                 "claimBounty",
                 {"archive_hash": archive_hash},
                 claimant
             )
-        except Exception:
-            return False
+            
+            return result
+            
+        except ContractExecutionError as e:
+            # Erreur spécifique du contrat - propager avec contexte
+            raise ContractExecutionError(
+                f"Failed to claim bounty {bounty_id}: {str(e)}",
+                contract_id=bounty_id,
+                function_name="claimBounty"
+            )
+            
+        except ValidationError:
+            # Erreur de validation - propager directement
+            raise
+            
+        except ValueError as e:
+            # Erreur de valeur - transformer en validation error
+            raise ValidationError(
+                f"Invalid parameter value: {str(e)}",
+                field_name="unknown",
+                actual_value=str(e)
+            )
+            
+        except KeyError as e:
+            # Contrat ou fonction non trouvé
+            raise ContractExecutionError(
+                f"Contract or function not found: {str(e)}",
+                contract_id=bounty_id,
+                function_name="claimBounty",
+                execution_step="contract_lookup"
+            )
+            
+        except Exception as e:
+            # Erreur inattendue - logger et convertir en erreur blockchain
+            handled_error = global_error_handler.handle_error(
+                e,
+                "contract",
+                f"claim_bounty_{bounty_id}"
+            )
+            raise handled_error
     
     def create_preservation_pool(self, creator: str, target_archives: List[str],
                                 initial_funding: Decimal) -> str:

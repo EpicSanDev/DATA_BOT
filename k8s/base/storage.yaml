@@ -1,0 +1,292 @@
+# ==============================================================================
+# Configuration de stockage persistant pour DATA_BOT v4
+# ==============================================================================
+
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: databot-ssd
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: storage
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: kubernetes.io/aws-ebs  # À adapter selon le cloud provider
+parameters:
+  type: gp3
+  fsType: ext4
+  encrypted: "true"
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: databot-blockchain
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: blockchain-storage
+  annotations:
+    description: "Stockage haute performance pour la blockchain"
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: io2
+  iops: "3000"
+  fsType: ext4
+  encrypted: "true"
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+
+---
+# PVC pour les données principales de l'application
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: databot-data-pvc
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: data-storage
+    app.kubernetes.io/version: v4
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "databot-ssd"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: databot-ssd
+
+---
+# PVC pour les logs
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: databot-logs-pvc
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: logs-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: databot-ssd
+
+---
+# PVC pour les archives
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: databot-archive-pvc
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: archive-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: databot-ssd
+
+---
+# PVC pour la blockchain (haute performance)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: databot-blockchain-pvc
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: blockchain-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: databot-blockchain
+
+---
+# PVC pour PostgreSQL
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: postgres-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: databot-ssd
+
+---
+# PVC pour Redis
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: redis-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: databot-ssd
+
+---
+# PVC pour Elasticsearch
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: elasticsearch-pvc
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: elasticsearch-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 30Gi
+  storageClassName: databot-ssd
+
+---
+# PVC pour OpenSearch
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: opensearch-pvc
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: opensearch-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 30Gi
+  storageClassName: databot-ssd
+
+---
+# PVC pour Qdrant
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qdrant-pvc
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: qdrant-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 15Gi
+  storageClassName: databot-ssd
+
+---
+# PVC pour Ollama (modèles AI)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-pvc
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: ollama-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: databot-ssd
+
+---
+# PVC pour Prometheus (métriques)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-pvc
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: prometheus-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: databot-ssd
+
+---
+# PVC pour Grafana (dashboards)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: grafana-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: databot-ssd
+
+---
+# PVC pour les backups
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-pvc
+  namespace: databot-v4
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: backup-storage
+spec:
+  accessModes:
+    - ReadWriteMany  # Partagé entre plusieurs pods de backup
+  resources:
+    requests:
+      storage: 200Gi
+  storageClassName: databot-ssd
+
+---
+# VolumeSnapshot pour les sauvegardes automatisées
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: databot-snapshot-class
+  labels:
+    app.kubernetes.io/name: databot
+    app.kubernetes.io/component: backup
+driver: ebs.csi.aws.com  # À adapter selon le provider
+deletionPolicy: Retain
+parameters:
+  encrypted: "true"

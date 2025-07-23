@@ -3,6 +3,8 @@ Archive Data Structures for ArchiveChain
 
 Defines data structures for storing and managing archive information
 in the ArchiveChain blockchain.
+
+SÉCURITÉ: Utilise des sels cryptographiques sécurisés au lieu de valeurs hardcodées
 """
 
 import json
@@ -11,6 +13,9 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from enum import Enum
+
+# Import du gestionnaire cryptographique sécurisé
+from .security import crypto_manager
 
 class CompressionType(Enum):
     """Supported compression types for archived content"""
@@ -81,10 +86,19 @@ class ArchiveData:
         return sha256_hash
     
     def calculate_checksum(self, content: bytes) -> str:
-        """Calculate SHA3-256 checksum for integrity verification"""
-        # Using SHA256 as fallback since SHA3 may not be available
-        checksum = hashlib.sha256(content + b"integrity_check").hexdigest()
-        self.checksum = f"sha256_{checksum}"
+        """
+        Calculate secure checksum for integrity verification
+        
+        CORRECTION CRITIQUE: Remplace le sel hardcodé b"integrity_check"
+        par un sel cryptographiquement sûr généré par crypto_manager
+        """
+        # Utilise un identifiant unique pour le sel basé sur l'archive_id
+        salt_id = f"archive_integrity_{self.archive_id}"
+        
+        # Utilise le gestionnaire cryptographique pour un checksum sécurisé
+        secure_checksum = crypto_manager.calculate_secure_checksum(content, salt_id)
+        
+        self.checksum = secure_checksum
         return self.checksum
     
     def to_dict(self) -> Dict[str, Any]:

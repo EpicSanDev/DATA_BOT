@@ -25,7 +25,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir -r requirements_v4.txt
 
 # Install Playwright browsers (for screenshots)
-RUN playwright install --with-deps chromium
+RUN python -m playwright install --with-deps chromium
 
 # Production stage
 FROM base as production

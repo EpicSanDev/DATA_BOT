@@ -1,0 +1,77 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: databot-base
+
+# Ressources de base
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secrets.yaml
+  - storage.yaml
+  - databot-api.yaml
+  - databot-admin.yaml
+  - databot-blockchain.yaml
+  - postgres.yaml
+  - redis.yaml
+  - elasticsearch.yaml
+  - opensearch.yaml
+  - qdrant.yaml
+  - ollama.yaml
+  - nginx.yaml
+  - monitoring.yaml
+  - autoscaling.yaml
+
+# Labels communs
+commonLabels:
+  app.kubernetes.io/name: databot
+  app.kubernetes.io/version: v4
+  app.kubernetes.io/managed-by: kustomize
+
+# Annotations communes
+commonAnnotations:
+  app.kubernetes.io/maintainer: "DATA_BOT DevOps Team"
+  deployment.kubernetes.io/revision: "1"
+
+# Images communes (pour faciliter les mises à jour)
+images:
+  - name: databot/api
+    newTag: v4-latest
+  - name: databot/admin
+    newTag: v4-latest
+  - name: databot/blockchain
+    newTag: v4-latest
+  - name: databot/nginx
+    newTag: v4-latest
+
+# Préfixe pour les noms des ressources
+namePrefix: databot-
+
+# Configuration de namespace
+namespace: databot-v4
+
+# Générateurs pour ConfigMaps et Secrets
+configMapGenerator:
+  - name: databot-env-config
+    envs:
+      - config.env
+
+secretGenerator:
+  - name: databot-credentials
+    envs:
+      - secrets.env
+    type: Opaque
+
+# Replicas par défaut
+replicas:
+  - name: databot-api
+    count: 2
+  - name: databot-admin
+    count: 1
+  - name: databot-blockchain
+    count: 1
+  - name: postgres
+    count: 1
+  - name: redis
+    count: 1

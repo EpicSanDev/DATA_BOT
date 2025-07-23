@@ -1,0 +1,269 @@
+version: '3.8'
+
+services:
+  # Nœud Archive principal
+  archivechain-node-1:
+    build:
+      context: ../../
+      dockerfile: blockchain/docker/Dockerfile.blockchain
+    container_name: archivechain-node-1
+    hostname: archivechain-node-1
+    environment:
+      - NODE_TYPE=archive
+      - NODE_ID=node-1
+      - NETWORK_PORT=8333
+      - API_PORT=5000
+      - P2P_PORT=8334
+      - BOOTSTRAP_NODES=archivechain-node-2:8333,archivechain-node-3:8333
+      - DATABASE_URL=postgresql://archivechain:password@postgres-blockchain:5432/archivechain
+      - REDIS_URL=redis://redis-blockchain:6379/0
+    ports:
+      - "8333:8333"
+      - "5000:5000"
+      - "8334:8334"
+    volumes:
+      - archivechain-node-1-data:/app/data
+      - archivechain-node-1-logs:/app/logs
+      - ./config:/app/config:ro
+    networks:
+      - archivechain-network
+    depends_on:
+      - postgres-blockchain
+      - redis-blockchain
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  # Nœud Storage secondaire
+  archivechain-node-2:
+    build:
+      context: ../../
+      dockerfile: blockchain/docker/Dockerfile.blockchain
+    container_name: archivechain-node-2
+    hostname: archivechain-node-2
+    environment:
+      - NODE_TYPE=storage
+      - NODE_ID=node-2
+      - NETWORK_PORT=8333
+      - API_PORT=5001
+      - P2P_PORT=8335
+      - BOOTSTRAP_NODES=archivechain-node-1:8333,archivechain-node-3:8333
+      - DATABASE_URL=postgresql://archivechain:password@postgres-blockchain:5432/archivechain
+      - REDIS_URL=redis://redis-blockchain:6379/1
+    ports:
+      - "8335:8333"
+      - "5001:5001"
+      - "8336:8335"
+    volumes:
+      - archivechain-node-2-data:/app/data
+      - archivechain-node-2-logs:/app/logs
+      - ./config:/app/config:ro
+    networks:
+      - archivechain-network
+    depends_on:
+      - postgres-blockchain
+      - redis-blockchain
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  # Nœud Bandwidth tertiaire
+  archivechain-node-3:
+    build:
+      context: ../../
+      dockerfile: blockchain/docker/Dockerfile.blockchain
+    container_name: archivechain-node-3
+    hostname: archivechain-node-3
+    environment:
+      - NODE_TYPE=bandwidth
+      - NODE_ID=node-3
+      - NETWORK_PORT=8333
+      - API_PORT=5002
+      - P2P_PORT=8337
+      - BOOTSTRAP_NODES=archivechain-node-1:8333,archivechain-node-2:8333
+      - DATABASE_URL=postgresql://archivechain:password@postgres-blockchain:5432/archivechain
+      - REDIS_URL=redis://redis-blockchain:6379/2
+    ports:
+      - "8337:8333"
+      - "5002:5002"
+      - "8338:8337"
+    volumes:
+      - archivechain-node-3-data:/app/data
+      - archivechain-node-3-logs:/app/logs
+      - ./config:/app/config:ro
+    networks:
+      - archivechain-network
+    depends_on:
+      - postgres-blockchain
+      - redis-blockchain
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  # Base de données PostgreSQL pour la blockchain
+  postgres-blockchain:
+    image: postgres:15-alpine
+    container_name: postgres-blockchain
+    environment:
+      - POSTGRES_DB=archivechain
+      - POSTGRES_USER=archivechain
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-blockchain-data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - archivechain-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+
+  # Redis pour le cache et les sessions
+  redis-blockchain:
+    image: redis:7-alpine
+    container_name: redis-blockchain
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-blockchain-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - archivechain-network
+    restart: unless-stopped
+    command: redis-server /usr/local/etc/redis/redis.conf
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.25'
+
+  # API Gateway pour load balancing
+  nginx-blockchain:
+    image: nginx:alpine
+    container_name: nginx-blockchain
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - archivechain-network
+    depends_on:
+      - archivechain-node-1
+      - archivechain-node-2
+      - archivechain-node-3
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+
+  # Monitoring avec Prometheus
+  prometheus-blockchain:
+    image: prom/prometheus:latest
+    container_name: prometheus-blockchain
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-blockchain-data:/prometheus
+    networks:
+      - archivechain-network
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+
+  # Grafana pour la visualisation
+  grafana-blockchain:
+    image: grafana/grafana:latest
+    container_name: grafana-blockchain
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-blockchain-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - archivechain-network
+    depends_on:
+      - prometheus-blockchain
+    restart: unless-stopped
+
+  # Explorateur de blocs
+  blockchain-explorer:
+    build:
+      context: ../../
+      dockerfile: blockchain/docker/Dockerfile.explorer
+    container_name: blockchain-explorer
+    environment:
+      - API_URL=http://nginx-blockchain
+      - PORT=3001
+    ports:
+      - "3001:3001"
+    networks:
+      - archivechain-network
+    depends_on:
+      - nginx-blockchain
+    restart: unless-stopped
+
+volumes:
+  archivechain-node-1-data:
+    driver: local
+  archivechain-node-1-logs:
+    driver: local
+  archivechain-node-2-data:
+    driver: local
+  archivechain-node-2-logs:
+    driver: local
+  archivechain-node-3-data:
+    driver: local
+  archivechain-node-3-logs:
+    driver: local
+  postgres-blockchain-data:
+    driver: local
+  redis-blockchain-data:
+    driver: local
+  prometheus-blockchain-data:
+    driver: local
+  grafana-blockchain-data:
+    driver: local
+
+networks:
+  archivechain-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
