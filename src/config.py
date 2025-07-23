@@ -42,6 +42,31 @@ class Config:
     DELAY_BETWEEN_REQUESTS = float(os.getenv("DELAY_BETWEEN_REQUESTS", "1"))
     RESPECT_ROBOTS_TXT = os.getenv("RESPECT_ROBOTS_TXT", "true").lower() == "true"
     
+    # ArchiveChain Blockchain settings
+    BLOCKCHAIN_ENABLED = os.getenv("BLOCKCHAIN_ENABLED", "true").lower() == "true"
+    BLOCKCHAIN_DATA_PATH = os.getenv("BLOCKCHAIN_DATA_PATH", "./data/blockchain.json")
+    BLOCKCHAIN_NODE_TYPE = os.getenv("BLOCKCHAIN_NODE_TYPE", "full_archive")
+    BLOCKCHAIN_LISTEN_PORT = int(os.getenv("BLOCKCHAIN_LISTEN_PORT", "8334"))
+    BLOCKCHAIN_MINING_ENABLED = os.getenv("BLOCKCHAIN_MINING_ENABLED", "true").lower() == "true"
+    
+    # Node configuration
+    NODE_STORAGE_CAPACITY = int(os.getenv("NODE_STORAGE_CAPACITY", str(100 * 1024 * 1024 * 1024)))  # 100GB
+    NODE_GEOGRAPHIC_REGION = os.getenv("NODE_GEOGRAPHIC_REGION", "us-east-1")
+    NODE_CONTENT_SPECIALIZATIONS = os.getenv("NODE_CONTENT_SPECIALIZATIONS", "text/html,application/pdf").split(",")
+    
+    # Consensus settings
+    POA_STORAGE_WEIGHT = float(os.getenv("POA_STORAGE_WEIGHT", "0.5"))
+    POA_BANDWIDTH_WEIGHT = float(os.getenv("POA_BANDWIDTH_WEIGHT", "0.3"))
+    POA_LONGEVITY_WEIGHT = float(os.getenv("POA_LONGEVITY_WEIGHT", "0.2"))
+    
+    # Token settings
+    ARC_GENESIS_ADDRESS = os.getenv("ARC_GENESIS_ADDRESS", "genesis_wallet")
+    ARC_MINING_REWARD = float(os.getenv("ARC_MINING_REWARD", "50.0"))
+    
+    # Smart contract settings
+    BOUNTY_DEFAULT_DURATION = int(os.getenv("BOUNTY_DEFAULT_DURATION", str(7 * 24 * 3600)))  # 7 days
+    PRESERVATION_POOL_MIN_FUNDING = float(os.getenv("PRESERVATION_POOL_MIN_FUNDING", "1000.0"))
+    
     @classmethod
     def setup_directories(cls):
         """Créer les répertoires nécessaires"""
